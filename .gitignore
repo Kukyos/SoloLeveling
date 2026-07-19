@@ -1,0 +1,8 @@
+# personal data — the app recreates these; keep your routine/progress out of the repo
+tasks.json
+stats.json
+skills.json
+workouts.json
+backups/
+__pycache__/
+.claude/

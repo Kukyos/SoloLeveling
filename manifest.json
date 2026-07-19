@@ -1,0 +1,10 @@
+{
+  "name": "Polymath OS",
+  "short_name": "Polymath",
+  "description": "Self-improvement operating system: routine, stats, training, skills.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#04060a",
+  "theme_color": "#ff9330",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

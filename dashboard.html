@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polymath OS</title>
+<link rel="icon" href="/icon.svg">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#04060a">
+<style>
+  :root {
+    --bg: #04060a;
+    --panel-hi: rgba(18, 22, 31, .94);
+    --panel-lo: rgba(8, 11, 17, .96);
+    --line: rgba(255, 140, 40, .55);
+    --line-dim: rgba(255, 140, 40, .16);
+    --orange: #ff9330;
+    --orange-hot: #ffb056;
+    --orange-pale: #ffdfc0;
+    --ink: #e7ecf5;
+    --dim: #7d8698;
+    --late: #ff5a3c;
+    --fail: #ff3b30;
+    --disp: "Bahnschrift", "Segoe UI", sans-serif;
+    --mono: "Consolas", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100vh; overflow-x: hidden;
+    background: var(--bg)
+      radial-gradient(1100px 540px at 50% -12%, rgba(255, 115, 20, .10), transparent 70%);
+    color: var(--ink); font-family: var(--disp);
+  }
+  #embers { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 3;
+    background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0, 0, 0, .15) 2px 3px);
+  }
+  #vignette {
+    position: fixed; inset: 0; z-index: 4; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 40, 20, .45));
+  }
+  #vignette.on { animation: vflash .6s ease-out; }
+  @keyframes vflash { 12% { opacity: 1; } 100% { opacity: 0; } }
+
+  header {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; gap: 14px;
+    max-width: 1560px; margin: 0 auto; padding: 16px 22px 4px;
+  }
+  .diamond { color: var(--orange); font-size: 13px; animation: spin 9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  header h1 {
+    font-size: 14px; font-weight: 600; letter-spacing: .55em;
+    text-transform: uppercase; color: var(--orange-hot);
+    animation: glitchin 1s steps(12) both;
+  }
+  @keyframes glitchin {
+    0% { opacity: 0; transform: translateX(-8px); text-shadow: 3px 0 var(--fail), -3px 0 #3af; }
+    60% { opacity: 1; text-shadow: 2px 0 var(--fail), -2px 0 #3af; }
+    100% { text-shadow: none; }
+  }
+  header .right { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  header .right b { color: var(--orange-hot); font-weight: 400; }
+  #clock { color: var(--orange-pale); text-shadow: 0 0 8px rgba(255, 140, 30, .6); }
+
+  main {
+    position: relative; z-index: 1;
+    display: grid; grid-template-columns: 330px minmax(0, 1fr) 410px;
+    gap: 16px; max-width: 1560px; margin: 0 auto;
+    padding: 12px 22px 18px; height: calc(100vh - 62px);
+  }
+  .col {
+    display: flex; flex-direction: column; gap: 16px;
+    overflow-y: auto; min-height: 0; padding: 2px;
+    scrollbar-width: thin; scrollbar-color: rgba(255, 140, 40, .3) transparent;
+  }
+  .col::-webkit-scrollbar { width: 6px; }
+  .col::-webkit-scrollbar-track { background: transparent; }
+  .col::-webkit-scrollbar-thumb { background: rgba(255, 140, 40, .25); }
+  .col::-webkit-scrollbar-thumb:hover { background: rgba(255, 140, 40, .5); }
+  main.shake { animation: shake .4s; }
+  @keyframes shake {
+    20% { transform: translate(-7px, 2px); } 40% { transform: translate(6px, -3px); }
+    60% { transform: translate(-4px, 2px); } 80% { transform: translate(3px, -1px); }
+  }
+
+  .panel {
+    position: relative; flex: none;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo));
+    box-shadow: 0 0 34px rgba(255, 110, 0, .12), inset 0 0 80px rgba(255, 110, 0, .05);
+    padding: 18px 20px;
+    transform-origin: 50% 0;
+    animation: rise .5s cubic-bezier(.2, .9, .3, 1) both;
+  }
+  .col .panel:nth-child(2) { animation-delay: .14s; }
+  .col .panel:nth-child(3) { animation-delay: .28s; }
+  #quest.panel { animation-delay: .07s; }
+  @keyframes rise {
+    0% { opacity: 0; transform: scaleY(.04); }
+    55% { opacity: 1; transform: scaleY(1.03); }
+    100% { transform: scaleY(1); }
+  }
+  .panel.collapsed { max-height: 56px; overflow: hidden; }
+  .panel-title { cursor: pointer; user-select: none; }
+  .panel-title::after { content: "  ▾"; color: var(--dim); font-size: 9px; }
+  .panel.collapsed .panel-title::after { content: "  ▸"; color: var(--orange); }
+  .panel > b { position: absolute; width: 16px; height: 16px; pointer-events: none; }
+  .panel > b.tl { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+  .panel > b.tr { top: -1px; right: -1px; border-top: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+  .panel > b.bl { bottom: -1px; left: -1px; border-bottom: 2px solid var(--orange); border-left: 2px solid var(--orange); }
+  .panel > b.br { bottom: -1px; right: -1px; border-bottom: 2px solid var(--orange); border-right: 2px solid var(--orange); }
+  .panel .sweep {
+    position: absolute; top: 0; left: 0; right: 0; height: 1px; overflow: hidden; pointer-events: none;
+  }
+  .panel .sweep::before {
+    content: ""; position: absolute; top: 0; width: 40%; height: 100%;
+    background: linear-gradient(90deg, transparent, var(--orange-hot), transparent);
+    animation: sweep 4.5s ease-in-out infinite;
+  }
+  @keyframes sweep { 0% { left: -40%; } 60%, 100% { left: 100%; } }
+
+  .panel-title {
+    font-size: 11px; letter-spacing: .4em; text-transform: uppercase;
+    color: var(--orange-hot); margin-bottom: 18px;
+  }
+  .panel-title::before { content: "◇ "; color: var(--orange); }
+
+  /* ---------- status window ---------- */
+  .lv-row { display: flex; align-items: flex-end; gap: 18px; }
+  .lv-label { font-size: 11px; letter-spacing: .35em; color: var(--dim); text-transform: uppercase; }
+  .lv-num {
+    font-size: 76px; line-height: .85; font-weight: 700; color: var(--orange-pale);
+    text-shadow: 0 0 18px rgba(255, 140, 30, .85), 0 0 70px rgba(255, 90, 0, .45);
+    animation: breathe 3.2s ease-in-out infinite, flicker 7s steps(1) infinite;
+  }
+  @keyframes breathe {
+    50% { text-shadow: 0 0 28px rgba(255, 150, 40, 1), 0 0 100px rgba(255, 90, 0, .65); }
+  }
+  @keyframes flicker {
+    91% { opacity: 1; } 92% { opacity: .55; } 93% { opacity: 1; }
+    95% { opacity: .75; } 96% { opacity: 1; }
+  }
+  .rank-box {
+    margin-left: auto; text-align: center;
+    border: 1px solid var(--line); padding: 8px 14px; position: relative;
+    box-shadow: 0 0 14px rgba(255, 120, 0, .2);
+    animation: rankpulse 2.6s ease-in-out infinite;
+  }
+  @keyframes rankpulse { 50% { box-shadow: 0 0 26px rgba(255, 120, 0, .45); } }
+  .rank-box small { display: block; font-size: 9px; letter-spacing: .3em; color: var(--dim); }
+  .rank-box span { font-size: 34px; font-weight: 700; color: var(--orange-hot); }
+  .job { margin-top: 14px; font-size: 12px; letter-spacing: .18em; color: var(--dim); text-transform: uppercase; }
+  .job b { color: var(--ink); font-weight: 600; }
+
+  .bar { position: relative; height: 8px; margin-top: 6px; border: 1px solid var(--line-dim); background: rgba(255, 140, 40, .07); overflow: hidden; }
+  .bar i {
+    display: block; height: 100%; position: relative;
+    background: linear-gradient(90deg, #ff7a00, var(--orange-hot));
+    box-shadow: 0 0 12px rgba(255, 140, 30, .8);
+    transition: width .7s cubic-bezier(.2, .9, .3, 1);
+  }
+  .bar i::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .55) 50%, transparent 100%);
+    width: 60px; animation: shimmer 2.2s linear infinite;
+  }
+  @keyframes shimmer { from { transform: translateX(-70px); } to { transform: translateX(360px); } }
+  .xp-caption { display: flex; justify-content: space-between; margin-top: 16px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+  #radar { display: block; margin: 18px auto 4px; overflow: visible; }
+  #radar .grid { fill: none; stroke: var(--line-dim); }
+  #radar .axis { stroke: var(--line-dim); }
+  #radar .lbl { font-family: var(--mono); font-size: 10px; fill: var(--orange-hot); text-anchor: middle; letter-spacing: .1em; }
+  #radar .val-lbl { font-family: var(--mono); font-size: 9px; fill: var(--dim); text-anchor: middle; }
+  #radar polygon.data {
+    fill: rgba(255, 140, 40, .18); stroke: var(--orange);
+    stroke-width: 1.5; filter: drop-shadow(0 0 6px rgba(255, 140, 30, .9));
+    transform-origin: 110px 100px; transform: scale(0);
+    transition: transform .8s cubic-bezier(.2, 1.4, .3, 1);
+  }
+  #radar polygon.data.in { transform: scale(1); }
+  #radar circle.dot { fill: var(--orange-hot); filter: drop-shadow(0 0 4px rgba(255, 140, 30, 1)); }
+
+  .stats { margin-top: 14px; display: grid; gap: 9px; }
+  .stat { display: grid; grid-template-columns: 40px 1fr 38px; align-items: baseline; column-gap: 10px; }
+  .stat .code { font-family: var(--mono); font-size: 12px; color: var(--orange-hot); }
+  .stat .name { font-size: 10px; letter-spacing: .12em; color: var(--dim); text-transform: uppercase; }
+  .stat .val { font-family: var(--mono); font-size: 15px; color: var(--orange-pale); text-align: right; text-shadow: 0 0 8px rgba(255, 140, 30, .5); }
+  .stat .bar { grid-column: 1 / -1; height: 5px; margin-top: 2px; }
+  .stat .bar i::after { display: none; }
+
+  /* ---------- daily protocol ---------- */
+  .quest-head { display: flex; align-items: center; gap: 16px; }
+  .alert {
+    width: 30px; height: 30px; flex: none; transform: rotate(45deg);
+    border: 1px solid var(--orange); box-shadow: 0 0 14px rgba(255, 130, 20, .5);
+    display: grid; place-items: center;
+    animation: blink 2.2s ease-in-out infinite;
+  }
+  .alert b { transform: rotate(-45deg); color: var(--orange-hot); font-size: 16px; }
+  @keyframes blink { 50% { box-shadow: 0 0 30px rgba(255, 130, 20, 1); } }
+  .quest-head .completion { margin-left: auto; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .completion b { color: var(--orange-hot); font-weight: 400; }
+  .completion .failed-n { color: var(--fail); }
+  .completion .bar { width: 140px; }
+
+  #quests { margin-top: 18px; border-top: 1px solid var(--line-dim); }
+  .q {
+    display: grid; grid-template-columns: 52px 42px 1fr auto auto; gap: 10px;
+    align-items: center; padding: 9px 6px;
+    border-bottom: 1px solid var(--line-dim);
+    border-left: 2px solid transparent;
+    animation: qin .45s both; transition: background .2s, border-color .2s, transform .2s;
+  }
+  @keyframes qin { from { opacity: 0; transform: translateX(-14px); } }
+  .q:hover { background: rgba(255, 140, 40, .05); border-left-color: var(--orange); transform: translateX(3px); }
+  .q .time { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .q.late .time { color: var(--late); animation: latepulse 1.4s ease-in-out infinite; }
+  @keyframes latepulse { 50% { text-shadow: 0 0 12px rgba(255, 90, 60, 1); } }
+  .q .chip {
+    font-family: var(--mono); font-size: 10px; text-align: center;
+    color: var(--orange-hot); border: 1px solid var(--line-dim); padding: 2px 0;
+  }
+  .q .title { font-size: 14px; }
+  .q .gain { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .q .acts { display: flex; gap: 6px; }
+  .q button {
+    font-family: var(--disp); font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--orange-hot); background: transparent;
+    border: 1px solid var(--line); padding: 5px 10px; cursor: pointer;
+    transition: background .15s, box-shadow .15s, transform .1s;
+  }
+  .q button:hover, .q button:focus-visible {
+    background: rgba(255, 140, 40, .18); box-shadow: 0 0 14px rgba(255, 130, 20, .6);
+    outline: none; transform: translateY(-1px);
+  }
+  .q button.failbtn { color: var(--fail); border-color: rgba(255, 60, 40, .5); }
+  .q button.failbtn:hover { background: rgba(255, 60, 40, .15); box-shadow: 0 0 14px rgba(255, 60, 40, .6); }
+  .q.done { opacity: .38; }
+  .q.done .title { text-decoration: line-through; text-decoration-color: rgba(255, 147, 48, .6); }
+  .q.done .check { font-family: var(--mono); color: var(--orange-hot); font-size: 14px; }
+  .q.failed { opacity: .55; background: rgba(255, 40, 25, .05); border-left-color: var(--fail); }
+  .q.failed .title { color: #c98a84; text-decoration: line-through; text-decoration-color: rgba(255, 60, 40, .7); }
+  .q.failed .check { font-family: var(--mono); color: var(--fail); font-size: 14px; text-shadow: 0 0 8px rgba(255, 60, 40, .8); }
+  .q.flash { animation: qflash .7s; }
+  @keyframes qflash { 15% { background: rgba(255, 150, 40, .3); } }
+  .empty { padding: 26px 4px; font-size: 13px; color: var(--dim); letter-spacing: .1em; }
+
+  .float {
+    position: fixed; z-index: 20; pointer-events: none;
+    font-family: var(--mono); font-size: 15px; color: var(--orange-hot);
+    text-shadow: 0 0 10px rgba(255, 140, 30, 1);
+    animation: floatup 1.1s ease-out both;
+  }
+  .float.neg { color: var(--fail); text-shadow: 0 0 10px rgba(255, 60, 40, 1); }
+  @keyframes floatup { to { transform: translateY(-48px); opacity: 0; } }
+
+  /* ---------- level up / down ---------- */
+  #levelup {
+    position: fixed; inset: 0; display: none; place-items: center; z-index: 10;
+    background: rgba(3, 4, 7, .82); text-align: center; overflow: hidden;
+  }
+  #levelup.on { display: grid; animation: fadein .25s ease-out; }
+  #levelup .ring {
+    position: absolute; left: 50%; top: 50%; width: 60px; height: 60px;
+    margin: -30px 0 0 -30px; border-radius: 50%;
+    border: 2px solid var(--orange); opacity: 0;
+  }
+  #levelup.on .ring { animation: ringout 1.6s ease-out infinite; }
+  #levelup.on .ring:nth-child(2) { animation-delay: .5s; }
+  #levelup.on .ring:nth-child(3) { animation-delay: 1s; }
+  @keyframes ringout { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(9); opacity: 0; } }
+  #levelup .big {
+    position: relative; font-size: 66px; font-weight: 700; letter-spacing: .3em; color: var(--orange-pale);
+    text-shadow: 0 0 30px rgba(255, 140, 30, 1), 0 0 120px rgba(255, 90, 0, .8);
+    animation: pop .55s cubic-bezier(.2, 1.6, .4, 1) both;
+  }
+  #levelup small { position: relative; display: block; margin-top: 12px; font-size: 13px; letter-spacing: .6em; color: var(--dim); }
+  #levelup.down .big { color: #ffb0a6; text-shadow: 0 0 30px rgba(255, 60, 40, 1), 0 0 120px rgba(255, 30, 10, .8); }
+  #levelup.down .ring { border-color: var(--fail); }
+  @keyframes pop { from { transform: scale(.55); opacity: 0; } }
+  @keyframes fadein { from { opacity: 0; } }
+
+  /* ---------- skills ---------- */
+  .skill { padding: 10px 0; border-bottom: 1px solid var(--line-dim); }
+  .skill .top { display: flex; align-items: baseline; gap: 10px; }
+  .skill .name { font-size: 14px; }
+  .skill .slv { font-family: var(--mono); font-size: 12px; color: var(--orange-hot); margin-left: auto; text-shadow: 0 0 8px rgba(255, 140, 30, .5); }
+  .skill .bar { height: 5px; margin-top: 7px; }
+  .skill .bar i::after { display: none; }
+  .skill .practice { display: flex; gap: 6px; margin-top: 8px; }
+  .skill .practice span { font-family: var(--mono); font-size: 10px; color: var(--dim); align-self: center; margin-right: 2px; }
+  .mini {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    color: var(--orange-hot); background: transparent;
+    border: 1px solid var(--line-dim); padding: 3px 8px; cursor: pointer;
+    transition: background .15s, box-shadow .15s;
+  }
+  .mini:hover, .mini:focus-visible { background: rgba(255, 140, 40, .16); box-shadow: 0 0 10px rgba(255, 130, 20, .5); outline: none; }
+  #sadd { display: flex; gap: 8px; margin-top: 14px; }
+  input, select {
+    font-family: var(--mono); font-size: 12px; color: var(--ink);
+    background: rgba(255, 140, 40, .05); border: 1px solid var(--line-dim);
+    padding: 6px 8px; min-width: 0;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--line); box-shadow: 0 0 10px rgba(255, 130, 20, .35); }
+  select { background: #10141c; }
+  #sadd input { flex: 1; }
+
+  /* ---------- training ---------- */
+  .muscle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+  .muscle {
+    border: 1px solid var(--line-dim); padding: 8px 6px; text-align: center;
+    transition: box-shadow .2s, border-color .2s;
+  }
+  .muscle:hover { border-color: var(--line); box-shadow: 0 0 12px rgba(255, 130, 20, .3); }
+  .muscle .mname { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; color: var(--dim); }
+  .muscle .mlv { font-size: 22px; font-weight: 700; color: var(--orange-pale); text-shadow: 0 0 10px rgba(255, 140, 30, .6); }
+  .muscle .mlast { font-family: var(--mono); font-size: 9px; color: var(--dim); }
+  .muscle.stale { border-color: rgba(255, 60, 40, .5); }
+  .muscle.stale .mlast { color: var(--late); animation: latepulse 1.6s infinite; }
+  .muscle .bar { height: 3px; margin-top: 5px; }
+  .muscle .bar i::after { display: none; }
+  #wform { display: grid; grid-template-columns: 1.6fr 1fr; gap: 8px; margin-top: 16px; }
+  #wform input[type="number"] { width: auto; }
+  #wform button { grid-column: 2; }
+  #wform button {
+    font-family: var(--disp); font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--orange-hot); background: transparent; border: 1px solid var(--line);
+    padding: 5px 12px; cursor: pointer; transition: background .15s, box-shadow .15s;
+  }
+  #wform button:hover, #wform button:focus-visible { background: rgba(255, 140, 40, .18); box-shadow: 0 0 14px rgba(255, 130, 20, .6); outline: none; }
+  #exhint { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 6px; min-height: 14px; }
+  #exhint b { color: var(--orange-hot); font-weight: 400; }
+  #wtoday { margin-top: 12px; border-top: 1px solid var(--line-dim); }
+  .wrow {
+    display: flex; gap: 10px; align-items: baseline; padding: 7px 4px;
+    border-bottom: 1px solid var(--line-dim); font-size: 13px; animation: qin .35s both;
+  }
+  .wrow .wm { font-family: var(--mono); font-size: 10px; color: var(--orange-hot); border: 1px solid var(--line-dim); padding: 1px 6px; }
+  .wrow .wnum { font-family: var(--mono); font-size: 12px; color: var(--dim); margin-left: auto; }
+  .wrow .wnum b { color: var(--orange-pale); font-weight: 400; }
+
+  /* ---------- system log ---------- */
+  .log-wrap { display: flex; gap: 24px; flex-wrap: wrap; }
+  .chart-box { flex: 1 1 300px; }
+  .feed-box { flex: 1 1 300px; }
+  .sub { font-family: var(--mono); font-size: 10px; letter-spacing: .25em; color: var(--dim); margin-bottom: 10px; }
+  #chart { width: 100%; height: 132px; display: block; }
+  #chart rect.gain { fill: url(#gr); filter: drop-shadow(0 0 4px rgba(255, 140, 30, .7)); }
+  #chart rect.loss { fill: rgba(255, 60, 40, .75); filter: drop-shadow(0 0 4px rgba(255, 60, 40, .6)); }
+  #chart rect.today { stroke: var(--orange-hot); stroke-width: 1; }
+  #chart line.base { stroke: var(--line-dim); }
+  #chart text { font-family: var(--mono); font-size: 8px; fill: var(--dim); text-anchor: middle; }
+  .frow {
+    display: flex; gap: 10px; align-items: baseline; padding: 5px 2px;
+    border-bottom: 1px solid var(--line-dim);
+    font-family: var(--mono); font-size: 11px; color: var(--dim);
+    animation: qin .35s both;
+  }
+  .frow .fx { width: 46px; text-align: right; color: var(--orange-hot); }
+  .frow.neg .fx { color: var(--late); }
+  .frow .ft { color: var(--ink); font-family: var(--disp); font-size: 12px; }
+  .frow .fmiss { color: var(--late); letter-spacing: .1em; font-size: 9px; border: 1px solid rgba(255, 60, 40, .4); padding: 1px 5px; }
+  .frow .fbonus { color: var(--orange-hot); letter-spacing: .1em; font-size: 9px; border: 1px solid var(--line-dim); padding: 1px 5px; }
+  .rank-box #ranknext { margin-top: 3px; color: var(--dim); font-size: 8px; letter-spacing: .15em; }
+
+  /* ---------- achievements ---------- */
+  #badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 10px; }
+  .badge {
+    display: flex; gap: 12px; align-items: center;
+    border: 1px solid var(--line-dim); padding: 12px;
+    transition: box-shadow .2s, border-color .2s;
+  }
+  .badge .bdia {
+    flex: none; width: 26px; height: 26px; transform: rotate(45deg);
+    border: 1px solid var(--line-dim); display: grid; place-items: center;
+  }
+  .badge .bdia i { transform: rotate(-45deg); font-style: normal; font-size: 12px; color: var(--dim); }
+  .badge .bn { font-size: 13px; color: var(--dim); }
+  .badge .bd { font-family: var(--mono); font-size: 9px; color: var(--dim); opacity: .7; }
+  .badge.got { border-color: var(--line); box-shadow: 0 0 14px rgba(255, 120, 0, .15), inset 0 0 24px rgba(255, 110, 0, .05); }
+  .badge.got .bdia { border-color: var(--orange); box-shadow: 0 0 12px rgba(255, 130, 20, .6); }
+  .badge.got .bdia i { color: var(--orange-hot); }
+  .badge.got .bn { color: var(--orange-pale); text-shadow: 0 0 8px rgba(255, 140, 30, .5); }
+  .badge:not(.got) { opacity: .5; }
+  .badge:not(.got):hover { opacity: .8; }
+
+  #achbanner {
+    position: fixed; top: 24px; right: -440px; z-index: 15;
+    display: flex; gap: 14px; align-items: center;
+    border: 1px solid var(--orange); padding: 14px 22px;
+    background: linear-gradient(180deg, var(--panel-hi), var(--panel-lo));
+    box-shadow: 0 0 40px rgba(255, 120, 0, .35);
+    transition: right .45s cubic-bezier(.2, .9, .3, 1);
+  }
+  #achbanner.on { right: 24px; }
+  #achbanner .adia { color: var(--orange); font-size: 20px; animation: spin 4s linear infinite; }
+  #achbanner .asub { font-family: var(--mono); font-size: 9px; letter-spacing: .35em; color: var(--dim); }
+  #achbanner #achname { font-size: 16px; color: var(--orange-pale); text-shadow: 0 0 10px rgba(255, 140, 30, .7); }
+
+  #tomorrow {
+    margin-top: 12px; padding: 9px 4px 0;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--dim);
+  }
+  #tomorrow b { color: var(--orange-hot); font-weight: 400; }
+  #tomorrow::before { content: "▸ "; color: var(--orange); }
+
+  #focusbar:empty { display: none; }
+  #focusbar {
+    display: flex; gap: 14px; align-items: center; margin-top: 14px;
+    border: 1px solid var(--line); padding: 10px 14px;
+    background: rgba(255, 140, 40, .06);
+    box-shadow: 0 0 18px rgba(255, 120, 0, .2), inset 0 0 30px rgba(255, 110, 0, .05);
+    animation: rankpulse 2s ease-in-out infinite;
+    font-size: 13px;
+  }
+  #focusbar .fico { color: var(--orange); animation: spin 3s linear infinite; }
+  #focusbar .ftime { font-family: var(--mono); font-size: 18px; color: var(--orange-pale); margin-left: auto; text-shadow: 0 0 10px rgba(255, 140, 30, .8); }
+  #focusbar .flabel { font-family: var(--mono); font-size: 9px; letter-spacing: .3em; color: var(--dim); }
+
+  .week { display: flex; flex-wrap: wrap; gap: 8px; }
+  .week span {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+    border: 1px solid var(--line-dim); padding: 4px 9px; color: var(--dim);
+  }
+  .week span b { color: var(--orange-hot); font-weight: 400; }
+  .week span.wneg b { color: var(--late); }
+
+  .q .check { cursor: pointer; background: none; border: none; padding: 2px 6px; }
+  .q .check:hover { text-shadow: 0 0 10px currentColor; }
+  .nexttag {
+    font-family: var(--mono); font-size: 8px; letter-spacing: .2em; color: var(--orange-hot);
+    border: 1px solid var(--line); padding: 1px 6px; margin-left: 8px;
+    animation: blink 1.8s ease-in-out infinite;
+  }
+  .q.next { border-left-color: var(--orange-hot); background: rgba(255, 140, 40, .04); }
+
+  @media (max-width: 1180px) {
+    main { display: flex; flex-direction: column; height: auto; gap: 16px; }
+    .col { display: contents; }
+  }
+  @media (max-width: 760px) {
+    main { padding: 12px 12px 40px; }
+    .panel { padding: 16px 14px; }
+    .lv-num { font-size: 64px; }
+    header { flex-wrap: wrap; padding: 16px 14px 2px; }
+    header .right { flex-basis: 100%; margin-left: 27px; }
+    .q { grid-template-columns: 46px 1fr auto; }
+    .q .chip, .q .gain { display: none; }
+    #wform { grid-template-columns: 1fr 1fr; }
+    #badges { grid-template-columns: 1fr 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    #radar polygon.data { transform: scale(1); }
+    #embers { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="embers"></canvas>
+<div id="vignette"></div>
+<header>
+  <span class="diamond">◆</span>
+  <h1>Polymath OS</h1>
+  <div class="right"><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS</div>
+</header>
+
+<main id="main">
+  <div class="col">
+  <section class="panel" id="status">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="panel-title">Status</div>
+    <div class="lv-row">
+      <div><div class="lv-label">Level</div><div class="lv-num" id="lv">1</div></div>
+      <div class="rank-box"><small>RANK</small><span id="rank">E</span><small id="ranknext"></small></div>
+    </div>
+    <div class="job">Path — <b>Jack of All Trades</b></div>
+    <div class="job">Title — <b id="title">Dabbler</b></div>
+    <div class="xp-caption"><span>XP</span><span id="xptext">0 / 100</span></div>
+    <div class="bar"><i id="xpbar" style="width:0%"></i></div>
+    <svg id="radar" width="220" height="204" viewBox="0 0 220 204"></svg>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel" id="achieve">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="panel-title">Achievements</div>
+    <div id="badges"></div>
+  </section>
+  </div>
+
+  <div class="col">
+  <section class="panel" id="quest">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="quest-head">
+      <div class="alert"><b>!</b></div>
+      <div class="panel-title" style="margin:0">Daily Protocol</div>
+      <div class="completion">
+        <div><b id="qdone">0</b> / <span id="qtotal">0</span> complete<span id="qfail"></span></div>
+        <div class="bar"><i id="qbar" style="width:0%"></i></div>
+      </div>
+    </div>
+    <div id="focusbar"></div>
+    <div id="quests"></div>
+    <div id="tomorrow"></div>
+  </section>
+  </div>
+
+  <div class="col">
+  <section class="panel" id="training">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="panel-title">Training Log</div>
+    <div class="muscle-grid" id="muscles"></div>
+    <form id="wform">
+      <input id="wex" list="exlist" placeholder="Exercise" required maxlength="60">
+      <select id="wm" required></select>
+      <input id="ww" type="number" placeholder="kg" min="0" step="0.5" required>
+      <input id="wr" type="number" placeholder="reps" min="1" required>
+      <input id="ws" type="number" placeholder="sets" min="1" required>
+      <button type="submit">Log</button>
+    </form>
+    <datalist id="exlist"></datalist>
+    <div id="exhint"></div>
+    <div id="wtoday"></div>
+  </section>
+
+  <section class="panel" id="skills">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="panel-title">Skills</div>
+    <div id="slist"></div>
+    <form id="sadd"><input id="sname" placeholder="New skill to learn" maxlength="40">
+      <button class="mini" type="submit">+ Add</button></form>
+  </section>
+
+  <section class="panel" id="syslog">
+    <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
+    <div class="panel-title">System Log</div>
+    <div class="log-wrap">
+      <div class="chart-box">
+        <div class="sub">THIS WEEK</div>
+        <div id="week" class="week"></div>
+        <div class="sub" style="margin-top:16px">XP — LAST 14 DAYS</div>
+        <svg id="chart" viewBox="0 0 336 132" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="feed-box">
+        <div class="sub">RECENT ACTIVITY</div>
+        <div id="feed"></div>
+      </div>
+    </div>
+  </section>
+  </div>
+</main>
+
+<div id="achbanner"><span class="adia">◆</span>
+  <div><div class="asub">ACHIEVEMENT UNLOCKED</div><div id="achname"></div></div></div>
+
+<div id="levelup"><i class="ring"></i><i class="ring"></i><i class="ring"></i>
+  <div><div class="big" id="lvuptext">LEVEL UP</div><small id="lvupsub">ARISE</small></div></div>
+
+<script>
+  const STATS = { STR: "Strength", AGI: "Agility", INT: "Intelligence",
+                  VIT: "Vitality", DIS: "Discipline", CRE: "Creativity" };
+  const $ = id => document.getElementById(id);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---- ember particles ---- */
+  const cv = $("embers"), cx = cv.getContext("2d");
+  let P = [];
+  function sizeCanvas() {
+    cv.width = innerWidth; cv.height = innerHeight;
+    P = Array.from({ length: 46 }, () => ({
+      x: Math.random() * cv.width, y: Math.random() * cv.height,
+      r: .6 + Math.random() * 1.7, s: .15 + Math.random() * .5,
+      w: Math.random() * 6.28, a: .1 + Math.random() * .5
+    }));
+  }
+  addEventListener("resize", sizeCanvas); sizeCanvas();
+  (function tick(t) {
+    if (reduced) return;
+    cx.clearRect(0, 0, cv.width, cv.height);
+    for (const p of P) {
+      p.y -= p.s; p.x += Math.sin(t / 1800 + p.w) * .25;
+      if (p.y < -4) { p.y = cv.height + 4; p.x = Math.random() * cv.width; }
+      cx.globalAlpha = p.a * (.6 + .4 * Math.sin(t / 600 + p.w));
+      cx.fillStyle = "#ff9330";
+      cx.beginPath(); cx.arc(p.x, p.y, p.r, 0, 6.28); cx.fill();
+    }
+    cx.globalAlpha = 1;
+    requestAnimationFrame(tick);
+  })(0);
+
+  /* ---- live clock ---- */
+  setInterval(() => {
+    $("clock").textContent = new Date().toTimeString().slice(0, 8);
+  }, 1000);
+
+  /* ---- radar chart ---- */
+  function radar(xp) {
+    const C = [110, 100], R = 74, keys = Object.keys(STATS);
+    const maxXp = Math.max(100, ...keys.map(k => xp[k] || 0));
+    const pt = (i, f) => {
+      const a = -Math.PI / 2 + i * Math.PI / 3;
+      return [C[0] + Math.cos(a) * R * f, C[1] + Math.sin(a) * R * f];
+    };
+    let s = "";
+    for (const f of [1 / 3, 2 / 3, 1])
+      s += `<polygon class="grid" points="${keys.map((_, i) => pt(i, f).join(",")).join(" ")}"/>`;
+    for (let i = 0; i < 6; i++) {
+      const [x, y] = pt(i, 1);
+      s += `<line class="axis" x1="${C[0]}" y1="${C[1]}" x2="${x}" y2="${y}"/>`;
+      const [lx, ly] = pt(i, 1.24);
+      s += `<text class="lbl" x="${lx}" y="${ly + 3}">${keys[i]}</text>`;
+      const [vx, vy] = pt(i, 1.24);
+      s += `<text class="val-lbl" x="${vx}" y="${vy + 14}">${10 + Math.floor((xp[keys[i]] || 0) / 100)}</text>`;
+    }
+    const data = keys.map((k, i) => pt(i, .12 + .88 * (xp[k] || 0) / maxXp));
+    s += `<polygon class="data" points="${data.map(p => p.join(",")).join(" ")}"/>`;
+    s += data.map(p => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.2"/>`).join("");
+    $("radar").innerHTML = s;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => document.querySelector("#radar polygon.data").classList.add("in")));
+  }
+
+  /* ---- effects ---- */
+  function floatXP(ev, text, neg) {
+    const el = document.createElement("div");
+    el.className = "float" + (neg ? " neg" : "");
+    el.textContent = text;
+    el.style.left = (ev.clientX - 14) + "px";
+    el.style.top = (ev.clientY - 24) + "px";
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1150);
+  }
+
+  async function act(ev, q, action) {
+    if (action === "done") floatXP(ev, `+${q.xp} XP`);
+    if (action === "fail") {
+      floatXP(ev, `-${q.xp * 2} XP`, true);
+      $("vignette").classList.remove("on"); void $("vignette").offsetWidth;
+      $("vignette").classList.add("on");
+      $("main").classList.add("shake");
+      setTimeout(() => $("main").classList.remove("shake"), 450);
+    }
+    ev.target.closest(".q").classList.add("flash");
+    await fetch("/api/act", { method: "POST", body: JSON.stringify({ id: q.id, action }) });
+    refresh();
+  }
+
+  function render(s) {
+    $("date").textContent = s.date;
+    $("streak").textContent = s.streak;
+    $("lv").textContent = s.level;
+    $("rank").textContent = s.rank;
+    $("title").textContent = s.title;
+    const nxt = [[10, "D"], [25, "C"], [50, "B"], [75, "A"], [100, "S"]].find(([t]) => s.level < t);
+    $("ranknext").textContent = nxt ? `${nxt[1]} @ LV ${nxt[0]}` : "MAX";
+    $("xptext").textContent = `${s.into} / ${s.need}`;
+    $("xpbar").style.width = (100 * s.into / s.need) + "%";
+
+    const prevRaw = localStorage.getItem("lv");
+    const prev = prevRaw === null ? s.level : +prevRaw;
+    if (s.level !== prev) {
+      const up = s.level > prev;
+      $("lvuptext").textContent = (up ? "LEVEL " : "LEVEL DOWN ") + s.level;
+      $("lvupsub").textContent = up ? "GROWTH COMPOUNDS" : "DISCIPLINE SLIPPED";
+      $("levelup").classList.toggle("down", !up);
+      $("levelup").classList.add("on");
+      setTimeout(() => $("levelup").classList.remove("on"), 2800);
+    }
+    localStorage.setItem("lv", s.level);
+
+    radar(s.xp);
+
+    $("stats").replaceChildren(...Object.entries(STATS).map(([code, name]) => {
+      const xp = s.xp[code] || 0;
+      const div = document.createElement("div");
+      div.className = "stat";
+      div.innerHTML = `<span class="code">${code}</span><span class="name">${name}</span>
+        <span class="val">${10 + Math.floor(xp / 100)}</span>
+        <div class="bar"><i style="width:${xp % 100}%"></i></div>`;
+      return div;
+    }));
+
+    const done = s.quests.filter(q => q.state === "done").length;
+    const failed = s.quests.filter(q => q.state === "failed").length;
+    $("qdone").textContent = done;
+    $("qtotal").textContent = s.quests.length;
+    $("qfail").innerHTML = failed ? ` &nbsp;·&nbsp; <span class="failed-n">${failed} failed</span>` : "";
+    $("qbar").style.width = s.quests.length ? (100 * done / s.quests.length) + "%" : "0%";
+
+    const pending = s.quests.filter(q => !q.state);
+    const nextId = (pending.find(q => q.time > s.now) || pending[0] || {}).id;
+    $("quests").replaceChildren(...s.quests.map((q, i) => {
+      const row = document.createElement("div");
+      row.className = "q" + (q.state === "done" ? " done" : q.state === "failed" ? " failed"
+        : (q.time <= s.now ? " late" : ""));
+      if (q.id === nextId && !q.state && q.time > s.now) row.classList.add("next");
+      row.style.animationDelay = (i * 35) + "ms";
+      const t = document.createElement("span"); t.className = "title"; t.textContent = q.title;
+      if (q.id === nextId && !q.state && q.time > s.now)
+        t.insertAdjacentHTML("beforeend", `<span class="nexttag">NEXT</span>`);
+      row.innerHTML = `<span class="time">${q.time}</span><span class="chip">${q.stat}</span>`;
+      row.appendChild(t);
+      row.insertAdjacentHTML("beforeend", `<span class="gain">+${q.xp} XP</span>`);
+      const acts = document.createElement("span"); acts.className = "acts";
+      if (q.state) {
+        const u = document.createElement("button");
+        u.className = "check"; u.title = "Undo";
+        u.textContent = q.state === "done" ? "✔" : "✕";
+        u.onclick = ev => act(ev, q, "undo");
+        acts.append(u);
+      } else {
+        const d = document.createElement("button"); d.textContent = "Done";
+        d.onclick = ev => act(ev, q, "done");
+        const x = document.createElement("button"); x.textContent = "Fail";
+        x.className = "failbtn"; x.title = `Not done: -${q.xp * 2} XP`;
+        x.onclick = ev => act(ev, q, "fail");
+        const f = document.createElement("button"); f.textContent = "Focus";
+        f.title = "Start 25 min focus timer"; f.onclick = ev => act(ev, q, "focus");
+        acts.append(d, x, f);
+      }
+      row.appendChild(acts);
+      return row;
+    }));
+    if (!s.quests.length)
+      $("quests").innerHTML = `<div class="empty">Nothing scheduled today. Rest is part of the program.</div>`;
+
+    /* skills */
+    $("slist").replaceChildren(...s.skills.map(sk => {
+      const div = document.createElement("div");
+      div.className = "skill";
+      const top = document.createElement("div"); top.className = "top";
+      const nm = document.createElement("span"); nm.className = "name"; nm.textContent = sk.name;
+      top.append(nm);
+      top.insertAdjacentHTML("beforeend", `<span class="slv">LV ${sk.level} · ${sk.into}/${sk.need}</span>`);
+      div.append(top);
+      div.insertAdjacentHTML("beforeend",
+        `<div class="bar"><i style="width:${100 * sk.into / sk.need}%"></i></div>`);
+      const p = document.createElement("div"); p.className = "practice";
+      p.insertAdjacentHTML("beforeend", `<span>PRACTICE</span>`);
+      for (const mins of [15, 30, 60]) {
+        const b = document.createElement("button"); b.className = "mini"; b.type = "button";
+        b.textContent = `+${mins}m`;
+        b.onclick = async ev => {
+          floatXP(ev, `+${mins} XP`);
+          await fetch("/api/skill", { method: "POST", body: JSON.stringify({ id: sk.id, mins }) });
+          refresh();
+        };
+        p.append(b);
+      }
+      div.append(p);
+      return div;
+    }));
+
+    /* muscles */
+    $("muscles").replaceChildren(...s.muscles.map(m => {
+      const div = document.createElement("div");
+      div.className = "muscle" + (m.last === null || m.last > 7 ? " stale" : "");
+      div.title = `${m.into}/${m.need} XP to next level`;
+      div.innerHTML = `<div class="mname">${m.m}</div><div class="mlv">${m.level}</div>
+        <div class="mlast">${m.last === null ? "NEVER" : m.last === 0 ? "TODAY" : m.last + "D AGO"}</div>
+        <div class="bar"><i style="width:${100 * m.into / m.need}%"></i></div>`;
+      return div;
+    }));
+    if (!$("wm").options.length)
+      $("wm").innerHTML = s.muscles.map(m => `<option>${m.m}</option>`).join("");
+
+    /* exercise memory + today's log */
+    lastState = s;
+    $("exlist").replaceChildren(...Object.keys(s.exlast).map(ex => {
+      const o = document.createElement("option"); o.value = ex; return o;
+    }));
+    exHint();
+    $("wtoday").replaceChildren(...s.wtoday.map(e => {
+      const row = document.createElement("div"); row.className = "wrow";
+      const nm = document.createElement("span"); nm.textContent = e.ex;
+      const chip = document.createElement("span"); chip.className = "wm"; chip.textContent = e.m;
+      const n = document.createElement("span"); n.className = "wnum";
+      n.innerHTML = `<b>${e.w}kg</b> × ${e.r} × ${e.s}`;
+      row.append(chip, nm, n);
+      return row;
+    }));
+
+    /* xp chart */
+    const W = 336, H = 132, base = 96, bw = 16, gap = W / 14;
+    const maxG = Math.max(50, ...s.days14.map(d => d.gain));
+    const maxL = Math.max(50, ...s.days14.map(d => d.loss));
+    let svg = `<defs><linearGradient id="gr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb056"/><stop offset="1" stop-color="#ff7a00"/></linearGradient></defs>
+      <line class="base" x1="0" y1="${base}" x2="${W}" y2="${base}"/>`;
+    s.days14.forEach((d, i) => {
+      const x = i * gap + (gap - bw) / 2;
+      const gh = Math.round(70 * d.gain / maxG), lh = Math.round(18 * d.loss / maxL);
+      const today = i === 13 ? " today" : "";
+      if (d.gain) svg += `<rect class="gain${today}" x="${x}" y="${base - gh}" width="${bw}" height="${gh}"><title>+${d.gain} XP</title></rect>`;
+      if (d.loss) svg += `<rect class="loss${today}" x="${x}" y="${base + 2}" width="${bw}" height="${lh}"><title>-${d.loss} XP</title></rect>`;
+      svg += `<text x="${x + bw / 2}" y="${H - 4}">${d.d}</text>`;
+    });
+    $("chart").innerHTML = svg;
+
+    /* activity feed */
+    $("feed").replaceChildren(...s.feed.map(f => {
+      const row = document.createElement("div");
+      row.className = "frow" + (f.x < 0 ? " neg" : "");
+      const t = document.createElement("span"); t.className = "ft"; t.textContent = f.t;
+      row.innerHTML = `<span>${f.d}</span><span class="fx">${f.x > 0 ? "+" : ""}${f.x}</span><span>${f.s}</span>`;
+      row.append(t);
+      if (f.auto) row.insertAdjacentHTML("beforeend", `<span class="fmiss">MISSED</span>`);
+      if (f.t === "Perfect Day") row.insertAdjacentHTML("beforeend", `<span class="fbonus">BONUS</span>`);
+      return row;
+    }));
+    if (!s.feed.length)
+      $("feed").innerHTML = `<div class="empty">No activity yet.</div>`;
+
+    /* focus countdown */
+    focusList = s.focus.map(f => ({ ...f, ends: Date.now() + f.left * 1000 }));
+    drawFocus();
+
+    /* weekly summary */
+    $("week").innerHTML = [
+      `<span><b>+${s.week.gain}</b> XP</span>`,
+      `<span class="wneg"><b>-${s.week.loss}</b> XP</span>`,
+      `<span><b>${s.week.done}</b> DONE</span>`,
+      `<span class="wneg"><b>${s.week.failed}</b> FAILED</span>`,
+      `<span><b>${s.week.perfect}</b> PERFECT</span>`,
+      `<span><b>${s.week.sets}</b> SETS</span>`,
+    ].join("");
+
+    /* tomorrow preview */
+    $("tomorrow").innerHTML = s.tomorrow.count
+      ? `TOMORROW — <b>${s.tomorrow.count}</b> TASKS · <b>${s.tomorrow.xp}</b> XP AT STAKE · FIRST AT <b>${s.tomorrow.first}</b>`
+      : `TOMORROW — NOTHING SCHEDULED`;
+
+    /* achievements */
+    $("badges").replaceChildren(...s.achieves.map(a => {
+      const div = document.createElement("div");
+      div.className = "badge" + (a.got ? " got" : "");
+      div.innerHTML = `<span class="bdia"><i>${a.got ? "✦" : "?"}</i></span>
+        <span><div class="bn">${a.n}</div><div class="bd">${a.d}</div></span>`;
+      return div;
+    }));
+    const got = s.achieves.filter(a => a.got).map(a => a.n);
+    const stored = localStorage.getItem("ach");
+    const fresh = got.filter(n => !JSON.parse(stored || "[]").includes(n));
+    if (fresh.length && stored !== null) {
+      $("achname").textContent = fresh.join(" · ");
+      $("achbanner").classList.add("on");
+      setTimeout(() => $("achbanner").classList.remove("on"), 4000);
+    }
+    localStorage.setItem("ach", JSON.stringify(got));
+  }
+
+  let focusList = [];
+  function drawFocus() {
+    const live = focusList.filter(f => f.ends > Date.now());
+    $("focusbar").replaceChildren(...live.map(f => {
+      const left = Math.max(0, Math.round((f.ends - Date.now()) / 1000));
+      const wrap = document.createElement("span");
+      wrap.style.cssText = "display:flex;gap:14px;align-items:center;flex:1";
+      const t = document.createElement("span"); t.textContent = f.title;
+      wrap.innerHTML = `<span class="fico">◆</span><span class="flabel">FOCUS</span>`;
+      wrap.append(t);
+      wrap.insertAdjacentHTML("beforeend",
+        `<span class="ftime">${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}</span>`);
+      return wrap;
+    }));
+  }
+  setInterval(drawFocus, 1000);
+
+  let lastState = null;
+  function exHint() {
+    const e = lastState && lastState.exlast[$("wex").value.trim()];
+    $("exhint").innerHTML = e
+      ? `LAST — <b>${e.w}kg × ${e.r} × ${e.s}</b> (${e.m}, ${e.d})` : "";
+    if (e) $("wm").value = e.m;
+  }
+  $("wex").addEventListener("input", exHint);
+
+  $("wform").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const body = { ex: $("wex").value.trim(), m: $("wm").value,
+                   w: +$("ww").value, r: +$("wr").value, s: +$("ws").value };
+    floatXP(ev.submitter ? { clientX: innerWidth / 2, clientY: ev.submitter.getBoundingClientRect().top }
+      : { clientX: innerWidth / 2, clientY: innerHeight / 2 }, `+${body.s * 15} ${body.m}`);
+    await fetch("/api/workout", { method: "POST", body: JSON.stringify(body) });
+    $("ww").value = $("wr").value = $("ws").value = "";
+    refresh();
+  });
+
+  $("sadd").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const name = $("sname").value.trim();
+    if (!name) return;
+    await fetch("/api/skill_add", { method: "POST", body: JSON.stringify({ name }) });
+    $("sname").value = "";
+    refresh();
+  });
+
+  /* collapsible panels, persisted */
+  document.querySelectorAll(".panel").forEach(p => {
+    const t = p.querySelector(".panel-title");
+    if (!t) return;
+    if (JSON.parse(localStorage.getItem("collapsed") || "[]").includes(p.id))
+      p.classList.add("collapsed");
+    t.addEventListener("click", () => {
+      p.classList.toggle("collapsed");
+      localStorage.setItem("collapsed",
+        JSON.stringify([...document.querySelectorAll(".panel.collapsed")].map(x => x.id)));
+    });
+  });
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+  async function refresh() {
+    render(await (await fetch("/api/state")).json());
+  }
+  refresh();
+  setInterval(refresh, 20000);
+</script>
+</body>
+</html>
