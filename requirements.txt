@@ -1,1 +1,1 @@
-windows-toasts>=1.3
+windows-toasts>=1.3; sys_platform == "win32"

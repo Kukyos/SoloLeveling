@@ -44,7 +44,7 @@ FOCUS = {}     # tid -> end timestamp; in-memory only, a restart drops running t
 
 
 def load():
-    tasks = json.loads(DB.read_text(encoding="utf-8")) if DB.exists() else []
+    tasks = load_json(DB, [])
     changed = False
     for t in tasks:
         if t.get("days") and not t.get("next"):
@@ -56,15 +56,60 @@ def load():
 
 
 def save(tasks):
-    DB.write_text(json.dumps(tasks, indent=1, ensure_ascii=False), encoding="utf-8")
+    save_json(DB, tasks)
+
+
+# ---------------- storage: Vercel Blob when token present, local files otherwise --------
+BLOB = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
+BLOB_API = "https://blob.vercel-storage.com"
+_blob_base = None  # store's public base url, resolved lazily
+
+
+def _blob_req(method, url, body=None, headers=None):
+    import urllib.request
+    req = urllib.request.Request(url, data=body, method=method, headers={
+        "Authorization": f"Bearer {BLOB}", "x-api-version": "12", **(headers or {})})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return r.read()
+
+
+def _blob_save(name, text):
+    global _blob_base
+    resp = json.loads(_blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
+        "x-add-random-suffix": "0", "x-allow-overwrite": "1",
+        "x-cache-control-max-age": "0", "x-content-type": "application/json"}))
+    _blob_base = resp["url"][: -len(name) - 1]
+
+
+def _blob_load(name):
+    global _blob_base
+    if not _blob_base:
+        blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?limit=1")).get("blobs", [])
+        if not blobs:
+            return None
+        _blob_base = blobs[0]["url"][: -len(blobs[0]["pathname"]) - 1]
+    try:
+        return _blob_req("GET", f"{_blob_base}/{name}?t={time.time()}").decode()
+    except Exception:
+        return None  # not created yet
 
 
 def load_json(p, default):
+    if BLOB:
+        s = _blob_load(p.name)
+        return json.loads(s) if s else default
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
 
 
 def save_json(p, d):
-    p.write_text(json.dumps(d, indent=1, ensure_ascii=False), encoding="utf-8")
+    text = json.dumps(d, indent=1, ensure_ascii=False)
+    if BLOB:
+        _blob_save(p.name, text)
+    else:
+        try:
+            p.write_text(text, encoding="utf-8")
+        except OSError:
+            pass  # read-only serverless fs before a Blob store exists: view-only mode
 
 
 def load_stats():
@@ -244,7 +289,7 @@ BACKUP_DIR = Path(__file__).with_name("backups")
 def backup():
     """Daily rotating copy of all data files; keeps the last 7 days."""
     dest = BACKUP_DIR / date.today().isoformat()
-    if dest.exists():
+    if BLOB or dest.exists():  # cloud mode: data lives in Blob, nothing local to snapshot
         return
     dest.mkdir(parents=True, exist_ok=True)
     for p in (DB, SF, SKILLS_F, WORK_F):
@@ -566,7 +611,17 @@ def cmd_skill(name):
     print(f"skill added: {name}")
 
 
+def cmd_sync_up():
+    """One-shot: upload local data files to the Vercel Blob store (needs BLOB_READ_WRITE_TOKEN)."""
+    assert BLOB, "set BLOB_READ_WRITE_TOKEN first"
+    for p in (DB, SF, SKILLS_F, WORK_F):
+        if p.exists():
+            _blob_save(p.name, p.read_text(encoding="utf-8"))
+            print(f"uploaded {p.name}")
+
+
 if __name__ == "__main__":
     cmd, rest = (sys.argv[1] if len(sys.argv) > 1 else "list"), sys.argv[2:]
     {"add": lambda: cmd_add(rest), "list": cmd_list, "rm": lambda: cmd_rm(int(rest[0])),
-     "skill": lambda: cmd_skill(rest[0]), "run": cmd_run, "demo": demo}[cmd]()
+     "skill": lambda: cmd_skill(rest[0]), "sync-up": cmd_sync_up,
+     "run": cmd_run, "demo": demo}[cmd]()
