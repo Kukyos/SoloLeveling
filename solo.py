@@ -20,6 +20,10 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+if hasattr(time, "tzset"):  # serverless runs in UTC; pin local time (no-op on Windows)
+    os.environ.setdefault("TZ", "Asia/Kolkata")
+    time.tzset()
+
 DB = Path(__file__).with_name("tasks.json")
 SF = Path(__file__).with_name("stats.json")
 SKILLS_F = Path(__file__).with_name("skills.json")
