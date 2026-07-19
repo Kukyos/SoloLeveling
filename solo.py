@@ -20,8 +20,8 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-if hasattr(time, "tzset"):  # serverless runs in UTC; pin local time (no-op on Windows)
-    os.environ.setdefault("TZ", "Asia/Kolkata")
+if hasattr(time, "tzset"):  # serverless hosts run UTC; force local time (no-op on Windows)
+    os.environ["TZ"] = os.environ.get("SOLO_TZ", "Asia/Kolkata")
     time.tzset()
 
 DB = Path(__file__).with_name("tasks.json")
