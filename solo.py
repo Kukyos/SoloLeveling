@@ -20,6 +20,12 @@ from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+try:  # use the OS certificate store, so TLS-inspecting networks (campus firewalls) work
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 if hasattr(time, "tzset"):  # serverless hosts run UTC; force local time (no-op on Windows)
     os.environ["TZ"] = os.environ.get("SOLO_TZ", "Asia/Kolkata")
     time.tzset()
