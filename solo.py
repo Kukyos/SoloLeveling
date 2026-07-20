@@ -88,10 +88,23 @@ def _blob_req(method, url, body=None, headers=None):
 
 
 def _blob_save(name, text):
-    _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
-        "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "false",
-        "x-allow-overwrite": "true", "x-cache-control-max-age": "60",
-        "x-content-type": "application/json"})
+    def put():
+        _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
+            "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "false",
+            "x-allow-overwrite": "true", "x-cache-control-max-age": "60",
+            "x-content-type": "application/json"})
+    try:
+        put()
+    except RuntimeError as e:
+        if "already exists" not in str(e):
+            raise
+        # the API ignores the overwrite header on this store: delete, then rewrite
+        blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={name}&limit=1")).get("blobs", [])
+        if blobs:
+            _blob_req("POST", f"{BLOB_API}/delete",
+                      json.dumps({"urls": [blobs[0]["url"]]}).encode(),
+                      {"Content-Type": "application/json"})
+        put()
 
 
 def _blob_load(name):
