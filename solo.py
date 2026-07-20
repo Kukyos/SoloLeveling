@@ -37,7 +37,7 @@ WORK_F = Path(__file__).with_name("workouts.json")
 HTML = Path(__file__).with_name("dashboard.html")
 WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 STATS = {"STR": "Strength", "AGI": "Agility", "INT": "Intelligence",
-         "VIT": "Vitality", "DIS": "Discipline", "CRE": "Creativity"}
+         "VIT": "Vitality", "BIZ": "Business", "CRE": "Creativity"}
 RANKS = [(100, "S"), (75, "A"), (50, "B"), (25, "C"), (10, "D"), (0, "E")]
 MUSCLES = ["CHEST", "BACK", "SHOULDERS", "BICEPS", "TRICEPS", "LEGS", "ABS"]
 SET_XP = 15               # muscle XP per logged set
@@ -53,9 +53,33 @@ toaster = None  # set by cmd_run; without it actions still work, just no toasts
 FOCUS = {}     # tid -> end timestamp; in-memory only, a restart drops running timers
 
 
+def migrate(tasks):
+    """Idempotent schema upgrades: reminder tasks, BIZ stat, focus flags."""
+    changed = False
+    for t in tasks:
+        title = t.get("title", "")
+        if (title == "Assembly" or title.startswith("Classes:") or "DBMS Online" in title) \
+                and t.get("kind") != "rem":
+            t["kind"] = "rem"
+            t.pop("stat", None)
+            t.pop("xp", None)
+            changed = True
+        if t.get("stat") == "DIS":
+            t["stat"] = "BIZ" if "Min + Fin" in title else "VIT"
+            changed = True
+        if "Freelance" in title and t.get("stat") == "CRE":
+            t["stat"] = "BIZ"
+            changed = True
+        if t.get("kind") != "rem" and not t.get("focus") \
+                and any(k in title for k in ("GATE", "Freelance", "Japanese", "Art")):
+            t["focus"] = True
+            changed = True
+    return changed
+
+
 def load():
     tasks = load_json(DB, [])
-    changed = False
+    changed = migrate(tasks)
     for t in tasks:
         if t.get("days") and not t.get("next"):
             advance(t)
@@ -73,6 +97,35 @@ def save(tasks):
 BLOB = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
 BLOB_API = "https://blob.vercel-storage.com"
 BLOB_ACCESS = os.environ.get("BLOB_ACCESS", "private")
+
+# Upstash Redis (Vercel Marketplace): all data files live in ONE key, so a
+# dashboard refresh costs a single command instead of eight blob ops.
+KV_URL = os.environ.get("KV_REST_API_URL") or os.environ.get("UPSTASH_REDIS_REST_URL", "")
+KV_TOKEN = os.environ.get("KV_REST_API_TOKEN") or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+KV_KEY = "solo"
+_kv_cache = {"t": 0.0, "doc": None}
+
+
+def _kv_req(path, body=None):
+    import urllib.request
+    req = urllib.request.Request(f"{KV_URL}{path}", data=body, method="POST" if body else "GET",
+                                 headers={"Authorization": f"Bearer {KV_TOKEN}"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
+def _kv_doc():
+    if _kv_cache["doc"] is not None and time.time() - _kv_cache["t"] < 2:
+        return _kv_cache["doc"]
+    res = _kv_req(f"/get/{KV_KEY}").get("result")
+    doc = json.loads(res) if res else {}
+    _kv_cache.update(t=time.time(), doc=doc)
+    return doc
+
+
+def _kv_save(doc):
+    _kv_req(f"/set/{KV_KEY}", json.dumps(doc).encode())
+    _kv_cache.update(t=time.time(), doc=doc)
 
 
 def _blob_req(method, url, body=None, headers=None):
@@ -153,6 +206,9 @@ def load_json(p, default):
     if REMOTE:
         s = _remote_req("GET", p.name)
         return json.loads(s) if s else default
+    if KV_URL:
+        v = _kv_doc().get(p.stem)
+        return v if v is not None else default
     if BLOB:
         s = _blob_load(p.name)
         return json.loads(s) if s else default
@@ -163,13 +219,17 @@ def save_json(p, d):
     text = json.dumps(d, indent=1, ensure_ascii=False)
     if REMOTE:
         _remote_req("PUT", p.name, text.encode())
+    elif KV_URL:
+        doc = _kv_doc()
+        doc[p.stem] = d
+        _kv_save(doc)
     elif BLOB:
         _blob_save(p.name, text)
     else:
         try:
             p.write_text(text, encoding="utf-8")
         except OSError:
-            pass  # read-only serverless fs before a Blob store exists: view-only mode
+            pass  # read-only serverless fs before storage exists: view-only mode
 
 
 def load_stats():
@@ -239,9 +299,9 @@ def title_of(lvl, stk):
 
 
 def scheduled_on(t, d):
-    """Recurring, alarmed task falls on date d. Sunday-style notify:false tasks
-    and one-offs are exempt from reckoning."""
-    if not t.get("days") or t.get("notify", True) is False:
+    """Recurring, alarmed, XP-bearing task falls on date d. Reminders,
+    notify:false tasks, and one-offs are exempt from reckoning."""
+    if not t.get("days") or t.get("notify", True) is False or t.get("kind") == "rem":
         return False
     wanted = set(range(7)) if t["days"] == "daily" else \
         {WEEKDAYS.index(x) for x in t["days"].split(",")}
@@ -256,6 +316,9 @@ def reckon():
     (explicit Fail stays 2x); a day with every quest cleared pays a bonus."""
     with lock:
         st = load_stats()
+        if "DIS" in st["xp"]:  # one-time stat migration: Discipline folds into Vitality
+            st["xp"]["VIT"] = st["xp"].get("VIT", 0) + st["xp"].pop("DIS")
+            save_stats(st)
         today = date.today()
         if st.get("reckoned") is None:
             st["reckoned"] = today.isoformat()
@@ -278,8 +341,10 @@ def reckon():
                                       "ap": st["xp"][stat] - old, "auto": True})
             if due and all(any(e["d"] == ds and e["id"] == t["id"] and e["x"] > 0
                                for e in st["log"]) for t in due):
-                st["xp"]["DIS"] = st["xp"].get("DIS", 0) + PERFECT_BONUS
-                st["log"].append({"d": ds, "id": 0, "s": "DIS", "x": PERFECT_BONUS, "bonus": True})
+                low = min(STATS, key=lambda k: st["xp"].get(k, 0))
+                st["xp"][low] = st["xp"].get(low, 0) + PERFECT_BONUS
+                st["log"].append({"d": ds, "id": 0, "s": low, "x": PERFECT_BONUS,
+                                  "ap": PERFECT_BONUS, "bonus": True})
             d += timedelta(days=1)
         st["reckoned"] = (today - timedelta(days=1)).isoformat()
         save_stats(st)
@@ -294,16 +359,20 @@ def apply_action(tid, action, when_id="30"):
         if not t:
             return
         now = datetime.now()
-        if action in ("done", "fail"):
+        if action in ("done", "fail", "dud"):
             today = now.date().isoformat()
             st = load_stats()
             if not any(e["d"] == today and e["id"] == tid for e in st["log"]):
-                stat, xp = t.get("stat", "DIS"), t.get("xp", 10)
-                delta = xp if action == "done" else -2 * xp
+                rem = t.get("kind") == "rem"
+                stat, xp = t.get("stat", "VIT"), t.get("xp", 10)
+                delta = 0 if (rem or action == "dud") else (xp if action == "done" else -2 * xp)
                 old = st["xp"].get(stat, 0)
                 st["xp"][stat] = max(0, old + delta)
-                st["log"].append({"d": today, "id": tid, "s": stat, "x": delta,
-                                  "ap": st["xp"][stat] - old})
+                e = {"d": today, "id": tid, "s": stat, "x": delta,
+                     "ap": st["xp"][stat] - old}
+                if action == "dud":
+                    e["dud"] = True
+                st["log"].append(e)
                 save_stats(st)
             FOCUS.pop(tid, None)
             advance(t, now)
@@ -364,13 +433,19 @@ def notify(tid, header="Have you done this?"):
     if not t:
         return
     sels = [ToastSelection(str(m), lbl) for lbl, m in SNOOZES]
+    rem = t.get("kind") == "rem"
+    body = t["title"] if rem else f"{t['title']}  (+{t.get('xp', 10)} XP {t.get('stat', '')})"
+    actions = [ToastButton("Done", f"done:{tid}")]
+    if not rem:
+        actions.append(ToastButton("Not Done", f"fail:{tid}"))
+    actions.append(ToastButton("Cancelled", f"dud:{tid}"))
+    actions.append(ToastButton("Reschedule", f"resched:{tid}"))
+    if t.get("focus"):
+        actions.append(ToastButton(f"Focus {FOCUS_MINUTES} min", f"focus:{tid}"))
     toaster.show_toast(Toast(
-        [header, f"{t['title']}  (+{t.get('xp', 10)} XP {t.get('stat', '')})"],
+        [header, body],
         inputs=[ToastInputSelectionBox("when", "Reschedule to", sels, default_selection=sels[0])],
-        actions=[ToastButton("Done", f"done:{tid}"),
-                 ToastButton("Not Done", f"fail:{tid}"),
-                 ToastButton("Reschedule", f"resched:{tid}"),
-                 ToastButton(f"Focus {FOCUS_MINUTES} min", f"focus:{tid}")],
+        actions=actions,
         on_activated=lambda e: apply_action(int(e.arguments.split(":")[1]),
                                             e.arguments.split(":")[0],
                                             (e.inputs or {}).get("when", "30"))))
@@ -384,7 +459,7 @@ def state():
     today = now.date().isoformat()
     st = load_stats()
     tasks = load()
-    entries = {e["id"]: e["x"] for e in st["log"] if e["d"] == today}
+    entries = {e["id"]: e for e in st["log"] if e["d"] == today and e["id"]}
     quests = []
     for t in tasks:
         if t.get("days"):
@@ -397,10 +472,14 @@ def state():
             tm = t["next"][11:16]
         else:
             continue
+        e = entries.get(t["id"])
+        rem = t.get("kind") == "rem"
         quests.append({"id": t["id"], "title": t["title"], "time": tm,
-                       "stat": t.get("stat", "DIS"), "xp": t.get("xp", 10),
-                       "state": "done" if entries.get(t["id"], 0) > 0
-                                else "failed" if t["id"] in entries else None})
+                       "stat": None if rem else t.get("stat", "VIT"),
+                       "xp": 0 if rem else t.get("xp", 10),
+                       "rem": rem, "focus": bool(t.get("focus")),
+                       "state": None if not e else "dud" if e.get("dud")
+                                else "failed" if e["x"] < 0 else "done"})
     quests.sort(key=lambda q: q["time"])
     total = sum(st["xp"].values())
     lvl, into, need = main_level(total)
@@ -432,7 +511,8 @@ def state():
         days14.append({"d": d[8:], "gain": sum(e["x"] for e in es if e["x"] > 0),
                        "loss": -sum(e["x"] for e in es if e["x"] < 0)})
     titles = {t["id"]: t["title"] for t in tasks}
-    feed = [{"d": e["d"][5:], "x": e["x"], "s": e["s"], "auto": e.get("auto", False),
+    feed = [{"d": e["d"][5:], "x": e["x"], "s": "VIT" if e["s"] == "DIS" else e["s"],
+             "auto": e.get("auto", False), "dud": e.get("dud", False),
              "t": "Perfect Day" if e.get("bonus") else titles.get(e["id"], f"Quest #{e['id']}")}
             for e in st["log"][-14:][::-1]]
 
@@ -459,7 +539,8 @@ def state():
                 tmq.append(t)
         elif t.get("next") and t["next"][:10] == tm.isoformat():
             tmq.append(t)
-    tomorrow = {"count": len(tmq), "xp": sum(t.get("xp", 10) for t in tmq),
+    tomorrow = {"count": len(tmq),
+                "xp": sum(t.get("xp", 10) for t in tmq if t.get("kind") != "rem"),
                 "first": min((t.get("time") or t["next"][11:16] for t in tmq), default=None)}
 
     vol = sum(e["w"] * e["r"] * e["s"] for e in wlog)
@@ -525,12 +606,8 @@ class Handler(BaseHTTPRequestHandler):
             name = self.path[len("/api/data/"):]
             if name not in DATA_FILES:
                 return self._send(404, b"{}")
-            if BLOB:
-                s = _blob_load(name)
-            else:
-                p = Path(__file__).with_name(name)
-                s = p.read_text(encoding="utf-8") if p.exists() else None
-            self._send(200, s.encode()) if s else self._send(404, b"{}")
+            v = load_json(Path(__file__).with_name(name), None)
+            self._send(200, json.dumps(v).encode()) if v is not None else self._send(404, b"{}")
         else:
             self._send(404, b"{}")
 
@@ -542,16 +619,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, b"{}")
         body = self.rfile.read(int(self.headers["Content-Length"]))
         try:
-            json.loads(body)  # only store valid JSON
+            data = json.loads(body)  # only store valid JSON
         except ValueError:
             return self._send(400, b"{}")
-        if BLOB:
-            _blob_save(name, body.decode())
-        else:
-            try:
-                Path(__file__).with_name(name).write_text(body.decode(), encoding="utf-8")
-            except OSError:
-                return self._send(503, b'{"error": "no Blob store connected to this deployment"}')
+        save_json(Path(__file__).with_name(name), data)
         self._send(200, b"{}")
 
     def do_POST(self):

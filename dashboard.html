@@ -277,6 +277,14 @@
   .q.failed { opacity: .55; background: rgba(255, 40, 25, .05); border-left-color: var(--fail); }
   .q.failed .title { color: #c98a84; text-decoration: line-through; text-decoration-color: rgba(255, 60, 40, .7); }
   .q.failed .check { font-family: var(--mono); color: var(--fail); font-size: 14px; text-shadow: 0 0 8px rgba(255, 60, 40, .8); }
+  .q .chip.rem { color: var(--dim); border-style: dashed; }
+  .q button.dudbtn { color: var(--dim); border-color: rgba(125, 134, 152, .4); }
+  .q button.dudbtn:hover { background: rgba(125, 134, 152, .15); box-shadow: 0 0 10px rgba(125, 134, 152, .4); }
+  .q.dud { opacity: .3; }
+  .q.dud .title { text-decoration: line-through; text-decoration-color: rgba(125, 134, 152, .7); }
+  .q.dud .check { color: var(--dim); }
+  .dud-n { color: var(--dim); }
+  .fdud { color: var(--dim); letter-spacing: .1em; font-size: 9px; border: 1px dashed rgba(125, 134, 152, .5); padding: 1px 5px; }
   .q.flash { animation: qflash .7s; }
   @keyframes qflash { 15% { background: rgba(255, 150, 40, .3); } }
   .empty { padding: 26px 4px; font-size: 13px; color: var(--dim); letter-spacing: .1em; }
@@ -471,6 +479,31 @@
   }
   .q.next { border-left-color: var(--orange-hot); background: rgba(255, 140, 40, .04); }
 
+  /* status screen: keep content centered, not stretched */
+  #status { padding-left: max(30px, calc((100% - 880px) / 2)); padding-right: max(30px, calc((100% - 880px) / 2)); }
+
+  /* ---------- radial nav (right-click) ---------- */
+  #radial {
+    position: fixed; z-index: 30; width: 240px; height: 240px;
+    pointer-events: none; opacity: 0; transform: scale(.55);
+    transition: transform .2s cubic-bezier(.2, 1.5, .4, 1), opacity .14s ease;
+    filter: drop-shadow(0 0 24px rgba(255, 120, 0, .25));
+  }
+  #radial.on { pointer-events: auto; opacity: 1; transform: scale(1); }
+  #radial path {
+    fill: rgba(13, 17, 26, .94); stroke: rgba(255, 140, 40, .35); stroke-width: 1;
+    cursor: pointer; transition: fill .12s, stroke .12s;
+  }
+  #radial g:hover path, #radial g.hot path { fill: rgba(255, 130, 20, .22); stroke: var(--orange); }
+  #radial text {
+    fill: var(--dim); font-family: var(--mono); font-size: 9px;
+    letter-spacing: .12em; text-anchor: middle; pointer-events: none;
+    transition: fill .12s;
+  }
+  #radial g:hover text { fill: var(--orange-pale); }
+  #radial circle.core { fill: rgba(8, 11, 17, .96); stroke: rgba(255, 140, 40, .5); }
+  #radial text.core { fill: var(--orange); font-size: 13px; }
+
   @media (max-width: 900px) {
     main { flex-direction: column-reverse; height: calc(100vh - 58px); padding: 8px 10px 10px; gap: 10px; }
     #menu { flex-direction: row; width: auto; overflow-x: auto; gap: 6px; padding-bottom: 2px; }
@@ -598,6 +631,8 @@
   </div>
 </main>
 
+<div id="radial"><svg id="radialsvg" viewBox="-120 -120 240 240"></svg></div>
+
 <div id="achbanner"><span class="adia">◆</span>
   <div><div class="asub">ACHIEVEMENT UNLOCKED</div><div id="achname"></div></div></div>
 
@@ -606,7 +641,7 @@
 
 <script>
   const STATS = { STR: "Strength", AGI: "Agility", INT: "Intelligence",
-                  VIT: "Vitality", DIS: "Discipline", CRE: "Creativity" };
+                  VIT: "Vitality", BIZ: "Business", CRE: "Creativity" };
   const $ = id => document.getElementById(id);
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -738,41 +773,56 @@
 
     const done = s.quests.filter(q => q.state === "done").length;
     const failed = s.quests.filter(q => q.state === "failed").length;
+    const duds = s.quests.filter(q => q.state === "dud").length;
+    const total = s.quests.length - duds;
     $("qdone").textContent = done;
-    $("qtotal").textContent = s.quests.length;
-    $("qfail").innerHTML = failed ? ` &nbsp;·&nbsp; <span class="failed-n">${failed} failed</span>` : "";
-    $("qbar").style.width = s.quests.length ? (100 * done / s.quests.length) + "%" : "0%";
+    $("qtotal").textContent = total;
+    $("qfail").innerHTML = (failed ? ` &nbsp;·&nbsp; <span class="failed-n">${failed} failed</span>` : "")
+      + (duds ? ` &nbsp;·&nbsp; <span class="dud-n">${duds} dud</span>` : "");
+    $("qbar").style.width = total ? (100 * done / total) + "%" : "0%";
 
     const pending = s.quests.filter(q => !q.state);
     const nextId = (pending.find(q => q.time > s.now) || pending[0] || {}).id;
     $("quests").replaceChildren(...s.quests.map((q, i) => {
       const row = document.createElement("div");
       row.className = "q" + (q.state === "done" ? " done" : q.state === "failed" ? " failed"
-        : (q.time <= s.now ? " late" : ""));
+        : q.state === "dud" ? " dud" : (q.time <= s.now ? " late" : ""));
       if (q.id === nextId && !q.state && q.time > s.now) row.classList.add("next");
-      row.style.animationDelay = (i * 35) + "ms";
+      row.style.animationDelay = (i * 30) + "ms";
       const t = document.createElement("span"); t.className = "title"; t.textContent = q.title;
       if (q.id === nextId && !q.state && q.time > s.now)
         t.insertAdjacentHTML("beforeend", `<span class="nexttag">NEXT</span>`);
-      row.innerHTML = `<span class="time">${q.time}</span><span class="chip">${q.stat}</span>`;
+      row.innerHTML = `<span class="time">${q.time}</span>` +
+        (q.rem ? `<span class="chip rem">REM</span>` : `<span class="chip">${q.stat}</span>`);
       row.appendChild(t);
-      row.insertAdjacentHTML("beforeend", `<span class="gain">+${q.xp} XP</span>`);
+      row.insertAdjacentHTML("beforeend",
+        q.rem ? `<span class="gain"></span>` : `<span class="gain">+${q.xp} XP</span>`);
       const acts = document.createElement("span"); acts.className = "acts";
       if (q.state) {
         const u = document.createElement("button");
         u.className = "check"; u.title = "Undo";
-        u.textContent = q.state === "done" ? "✔" : "✕";
+        u.textContent = q.state === "done" ? "✔" : q.state === "failed" ? "✕" : "∅";
         u.onclick = ev => act(ev, q, "undo");
         acts.append(u);
       } else {
         const d = document.createElement("button"); d.textContent = "Done";
         d.onclick = ev => act(ev, q, "done");
-        const x = document.createElement("button"); x.textContent = "Fail";
-        x.className = "failbtn"; x.title = `Not done: -${q.xp * 2} XP`;
-        x.onclick = ev => act(ev, q, "fail");
-        const f = document.createElement("button"); f.textContent = "Focus";
-        f.title = "Start 25 min focus timer"; f.onclick = ev => act(ev, q, "focus");
-        acts.append(d, x, f);
+        acts.append(d);
+        if (!q.rem) {
+          const x = document.createElement("button"); x.textContent = "Fail";
+          x.className = "failbtn"; x.title = `Not done: -${q.xp * 2} XP`;
+          x.onclick = ev => act(ev, q, "fail");
+          acts.append(x);
+        }
+        const z = document.createElement("button"); z.textContent = "Dud";
+        z.className = "dudbtn"; z.title = "Cancelled / not applicable today — no XP, no penalty";
+        z.onclick = ev => act(ev, q, "dud");
+        acts.append(z);
+        if (q.focus) {
+          const f = document.createElement("button"); f.textContent = "Focus";
+          f.title = "Start 25 min focus timer"; f.onclick = ev => act(ev, q, "focus");
+          acts.append(f);
+        }
       }
       row.appendChild(acts);
       return row;
@@ -858,9 +908,10 @@
       const row = document.createElement("div");
       row.className = "frow" + (f.x < 0 ? " neg" : "");
       const t = document.createElement("span"); t.className = "ft"; t.textContent = f.t;
-      row.innerHTML = `<span>${f.d}</span><span class="fx">${f.x > 0 ? "+" : ""}${f.x}</span><span>${f.s}</span>`;
+      row.innerHTML = `<span>${f.d}</span><span class="fx">${f.x > 0 ? "+" + f.x : f.x < 0 ? f.x : "·"}</span><span>${f.x === 0 ? "" : f.s}</span>`;
       row.append(t);
       if (f.auto) row.insertAdjacentHTML("beforeend", `<span class="fmiss">MISSED</span>`);
+      if (f.dud) row.insertAdjacentHTML("beforeend", `<span class="fdud">DUD</span>`);
       if (f.t === "Perfect Day") row.insertAdjacentHTML("beforeend", `<span class="fbonus">BONUS</span>`);
       return row;
     }));
@@ -964,6 +1015,40 @@
     if (m) show(m);
   });
   show(localStorage.getItem("screen") || "quest");
+
+  /* radial nav: right-click anywhere */
+  const RAD_ITEMS = [["quest", "PROTOCOL"], ["status", "STATUS"], ["training", "TRAIN"],
+                     ["skills", "SKILLS"], ["syslog", "LOG"], ["achieve", "TROPHY"]];
+  function slicePath(index, total, R, r) {
+    const per = 360 / total, mid = -90 + per * index, h = per / 2;
+    const p = (rad, deg) => { const a = deg * Math.PI / 180; return [Math.cos(a) * rad, Math.sin(a) * rad]; };
+    const [ox1, oy1] = p(R, mid - h), [ox2, oy2] = p(R, mid + h);
+    const [ix1, iy1] = p(r, mid - h), [ix2, iy2] = p(r, mid + h);
+    return `M ${ox1} ${oy1} A ${R} ${R} 0 0 1 ${ox2} ${oy2} L ${ix2} ${iy2} A ${r} ${r} 0 0 0 ${ix1} ${iy1} Z`;
+  }
+  (function buildRadial() {
+    const svg = $("radialsvg"), n = RAD_ITEMS.length;
+    let h = "";
+    RAD_ITEMS.forEach(([id, label], i) => {
+      const a = (-90 + 360 / n * i) * Math.PI / 180;
+      const lx = Math.cos(a) * 79, ly = Math.sin(a) * 79;
+      h += `<g data-s="${id}"><path d="${slicePath(i, n, 116, 46)}"/><text x="${lx}" y="${ly + 3}">${label}</text></g>`;
+    });
+    h += `<circle class="core" r="38"/><text class="core" y="5">◆</text>`;
+    svg.innerHTML = h;
+    svg.querySelectorAll("g").forEach(g =>
+      g.addEventListener("click", () => { show(g.dataset.s); radialEl.classList.remove("on"); }));
+  })();
+  const radialEl = $("radial");
+  addEventListener("contextmenu", e => {
+    if (e.target.closest("input,select,textarea")) return;
+    e.preventDefault();
+    radialEl.style.left = Math.min(Math.max(e.clientX - 120, 4), innerWidth - 244) + "px";
+    radialEl.style.top = Math.min(Math.max(e.clientY - 120, 4), innerHeight - 244) + "px";
+    radialEl.classList.add("on");
+  });
+  addEventListener("click", e => { if (!e.target.closest("#radial")) radialEl.classList.remove("on"); });
+  addEventListener("keydown", e => { if (e.key === "Escape") radialEl.classList.remove("on"); });
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
