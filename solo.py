@@ -104,7 +104,31 @@ def _blob_load(name):
         return None  # not created yet
 
 
+# Networks that MITM blob.vercel-storage.com (campus FortiGate) can't reach Blob
+# directly; SOLO_REMOTE relays all storage through the deployed app instead.
+REMOTE = os.environ.get("SOLO_REMOTE", "").rstrip("/")
+DATA_FILES = {"tasks.json", "stats.json", "skills.json", "workouts.json"}
+
+
+def _remote_req(method, name, body=None):
+    import urllib.request
+    pw = os.environ.get("SOLO_PASSWORD", "")
+    req = urllib.request.Request(f"{REMOTE}/api/data/{name}", data=body, method=method, headers={
+        "Authorization": "Basic " + base64.b64encode(f"solo:{pw}".encode()).decode()})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.read()
+    except Exception as e:
+        import urllib.error
+        if isinstance(e, urllib.error.HTTPError) and e.code == 404:
+            return None
+        raise
+
+
 def load_json(p, default):
+    if REMOTE:
+        s = _remote_req("GET", p.name)
+        return json.loads(s) if s else default
     if BLOB:
         s = _blob_load(p.name)
         return json.loads(s) if s else default
@@ -113,7 +137,9 @@ def load_json(p, default):
 
 def save_json(p, d):
     text = json.dumps(d, indent=1, ensure_ascii=False)
-    if BLOB:
+    if REMOTE:
+        _remote_req("PUT", p.name, text.encode())
+    elif BLOB:
         _blob_save(p.name, text)
     else:
         try:
@@ -476,8 +502,35 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, Path(__file__).with_name(self.path[1:]).read_bytes(), STATIC[self.path])
         elif self.path == "/api/state":
             self._send(200, json.dumps(state()).encode())
+        elif self.path.startswith("/api/data/"):
+            name = self.path[len("/api/data/"):]
+            if name not in DATA_FILES:
+                return self._send(404, b"{}")
+            if BLOB:
+                s = _blob_load(name)
+            else:
+                p = Path(__file__).with_name(name)
+                s = p.read_text(encoding="utf-8") if p.exists() else None
+            self._send(200, s.encode()) if s else self._send(404, b"{}")
         else:
             self._send(404, b"{}")
+
+    def do_PUT(self):
+        if not self._authed():
+            return
+        name = self.path[len("/api/data/"):] if self.path.startswith("/api/data/") else ""
+        if name not in DATA_FILES:
+            return self._send(404, b"{}")
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        try:
+            json.loads(body)  # only store valid JSON
+        except ValueError:
+            return self._send(400, b"{}")
+        if BLOB:
+            _blob_save(name, body.decode())
+        else:
+            Path(__file__).with_name(name).write_text(body.decode(), encoding="utf-8")
+        self._send(200, b"{}")
 
     def do_POST(self):
         if not self._authed():
@@ -622,11 +675,13 @@ def cmd_skill(name):
 
 
 def cmd_sync_up():
-    """One-shot: upload local data files to the Vercel Blob store (needs BLOB_READ_WRITE_TOKEN)."""
-    assert BLOB, "set BLOB_READ_WRITE_TOKEN first"
+    """One-shot: upload local data files to cloud storage.
+    Via SOLO_REMOTE (app relay, works behind MITM firewalls) or BLOB_READ_WRITE_TOKEN (direct)."""
+    assert REMOTE or BLOB, "set SOLO_REMOTE (+SOLO_PASSWORD) or BLOB_READ_WRITE_TOKEN first"
     for p in (DB, SF, SKILLS_F, WORK_F):
         if p.exists():
-            _blob_save(p.name, p.read_text(encoding="utf-8"))
+            text = p.read_text(encoding="utf-8")
+            _remote_req("PUT", p.name, text.encode()) if REMOTE else _blob_save(p.name, text)
             print(f"uploaded {p.name}")
 
 
