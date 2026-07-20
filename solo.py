@@ -119,7 +119,8 @@ def _blob_load(name):
                 blobs[0].get("url")):
         if url:
             try:
-                return _blob_req("GET", url, {"x-vercel-blob-access": BLOB_ACCESS}).decode()
+                return _blob_req("GET", url, None,
+                                 {"x-vercel-blob-access": BLOB_ACCESS}).decode()
             except RuntimeError:
                 continue
     raise RuntimeError(f"blob {name}: listed but not fetchable")
