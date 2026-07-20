@@ -87,32 +87,36 @@ def _blob_req(method, url, body=None, headers=None):
         raise RuntimeError(f"blob api {e.code}: {e.read()[:300]}") from None
 
 
+def _blob_list(name):
+    """All stored versions of a data file, newest first (suffixed names sort by uploadedAt)."""
+    stem = name.rsplit(".", 1)[0]
+    blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={stem}&limit=50")).get("blobs", [])
+    return sorted((b for b in blobs if b["pathname"].startswith(stem)),
+                  key=lambda b: b.get("uploadedAt", ""), reverse=True)
+
+
 def _blob_save(name, text):
-    def put():
-        _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
-            "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "false",
-            "x-allow-overwrite": "true", "x-cache-control-max-age": "60",
-            "x-content-type": "application/json"})
+    # Write a brand-new version every time (random suffix): no overwrite conflicts,
+    # no moment where the file doesn't exist. Then prune older versions, best-effort.
+    _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
+        "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "true",
+        "x-cache-control-max-age": "60", "x-content-type": "application/json"})
     try:
-        put()
-    except RuntimeError as e:
-        if "already exists" not in str(e):
-            raise
-        # the API ignores the overwrite header on this store: delete, then rewrite
-        blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={name}&limit=1")).get("blobs", [])
-        if blobs:
-            _blob_req("POST", f"{BLOB_API}/delete",
-                      json.dumps({"urls": [blobs[0]["url"]]}).encode(),
+        old = [b["url"] for b in _blob_list(name)[1:]]
+        if old:
+            _blob_req("POST", f"{BLOB_API}/delete", json.dumps({"urls": old}).encode(),
                       {"Content-Type": "application/json"})
-        put()
+    except Exception:
+        pass  # stale versions are harmless; next save prunes again
 
 
 def _blob_load(name):
-    blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={name}&limit=1")).get("blobs", [])
-    if not blobs or blobs[0]["pathname"] != name:
+    blobs = _blob_list(name)
+    if not blobs:
         return None
     # private blobs download from the API host with auth; public ones from their url
-    for url in (f"{BLOB_API}/{name}", blobs[0].get("downloadUrl"), blobs[0].get("url")):
+    for url in (f"{BLOB_API}/{blobs[0]['pathname']}", blobs[0].get("downloadUrl"),
+                blobs[0].get("url")):
         if url:
             try:
                 return _blob_req("GET", url, {"x-vercel-blob-access": BLOB_ACCESS}).decode()
