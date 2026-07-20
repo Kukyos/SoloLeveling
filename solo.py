@@ -72,7 +72,7 @@ def save(tasks):
 # ---------------- storage: Vercel Blob when token present, local files otherwise --------
 BLOB = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
 BLOB_API = "https://blob.vercel-storage.com"
-_blob_base = None  # store's public base url, resolved lazily
+BLOB_ACCESS = os.environ.get("BLOB_ACCESS", "private")
 
 
 def _blob_req(method, url, body=None, headers=None):
@@ -88,25 +88,18 @@ def _blob_req(method, url, body=None, headers=None):
 
 
 def _blob_save(name, text):
-    global _blob_base
-    resp = json.loads(_blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
-        "x-vercel-blob-access": "public", "x-add-random-suffix": "false",
+    _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
+        "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "false",
         "x-allow-overwrite": "true", "x-cache-control-max-age": "60",
-        "x-content-type": "application/json"}))
-    _blob_base = resp["url"][: -len(name) - 1]
+        "x-content-type": "application/json"})
 
 
 def _blob_load(name):
-    global _blob_base
-    if not _blob_base:
-        blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?limit=1")).get("blobs", [])
-        if not blobs:
-            return None
-        _blob_base = blobs[0]["url"][: -len(blobs[0]["pathname"]) - 1]
-    try:
-        return _blob_req("GET", f"{_blob_base}/{name}?t={time.time()}").decode()
-    except Exception:
-        return None  # not created yet
+    # list (authenticated) yields a fetchable download url even on private stores
+    blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={name}&limit=1")).get("blobs", [])
+    if not blobs or blobs[0]["pathname"] != name:
+        return None
+    return _blob_req("GET", blobs[0].get("downloadUrl") or blobs[0]["url"]).decode()
 
 
 # Networks that MITM blob.vercel-storage.com (campus FortiGate) can't reach Blob
