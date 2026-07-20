@@ -71,31 +71,6 @@
   }
   main.shake { animation: shake .4s; }
 
-  /* ---------- game menu rail ---------- */
-  #menu { display: flex; flex-direction: column; gap: 10px; width: 168px; flex: none; }
-  .mbtn {
-    position: relative; text-align: left;
-    font-family: var(--disp); font-size: 12px; letter-spacing: .28em; text-transform: uppercase;
-    color: var(--dim); background: linear-gradient(180deg, rgba(16, 20, 28, .5), rgba(9, 12, 18, .5));
-    border: 1px solid var(--line-dim); padding: 14px 14px 12px; cursor: pointer;
-    transition: color .15s, border-color .15s, box-shadow .2s, background .2s, transform .1s;
-  }
-  .mbtn::before { content: "◇  "; color: var(--dim); }
-  .mbtn small {
-    display: block; margin-top: 4px; font-family: var(--mono); font-size: 8px;
-    letter-spacing: .2em; color: var(--dim); opacity: .6;
-  }
-  .mbtn:hover, .mbtn:focus-visible {
-    color: var(--orange-hot); border-color: var(--line); outline: none; transform: translateX(2px);
-  }
-  .mbtn.active {
-    color: var(--orange-pale); border-color: var(--orange);
-    background: linear-gradient(90deg, rgba(255, 130, 20, .14), rgba(255, 130, 20, .03));
-    box-shadow: 0 0 18px rgba(255, 120, 0, .25), inset 0 0 24px rgba(255, 110, 0, .07);
-    text-shadow: 0 0 10px rgba(255, 140, 30, .6);
-  }
-  .mbtn.active::before { content: "◆  "; color: var(--orange); }
-
   /* ---------- viewport: one active screen ---------- */
   #viewport { position: relative; flex: 1; min-height: 0; }
   .screen {
@@ -107,7 +82,16 @@
   .screen::-webkit-scrollbar-track { background: transparent; }
   .screen::-webkit-scrollbar-thumb { background: rgba(255, 140, 40, .25); }
   .screen::-webkit-scrollbar-thumb:hover { background: rgba(255, 140, 40, .5); }
-  .screen.active { display: block; animation: rise .35s cubic-bezier(.2, .9, .3, 1) both; }
+  .screen.active { display: block; animation: screenin .3s cubic-bezier(.16, 1, .3, 1) both; }
+  @keyframes screenin {
+    from { opacity: 0; transform: translateY(10px) scale(.99); }
+    to { opacity: 1; transform: none; }
+  }
+  #navbtn {
+    background: none; border: 1px solid var(--line-dim); color: var(--orange-hot);
+    font-size: 13px; padding: 1px 9px; cursor: pointer; transition: box-shadow .15s;
+  }
+  #navbtn:hover { box-shadow: 0 0 10px rgba(255, 130, 20, .5); }
 
   /* ---------- header HUD ---------- */
   .hud { display: flex; align-items: center; gap: 14px; margin-left: 26px; }
@@ -511,10 +495,7 @@
   #radial text.core { fill: var(--orange); font-size: 13px; }
 
   @media (max-width: 900px) {
-    main { flex-direction: column-reverse; height: calc(100vh - 58px); padding: 8px 10px 10px; gap: 10px; }
-    #menu { flex-direction: row; width: auto; overflow-x: auto; gap: 6px; padding-bottom: 2px; }
-    .mbtn { flex: none; font-size: 10px; letter-spacing: .15em; padding: 9px 10px; }
-    .mbtn small { display: none; }
+    main { height: calc(100vh - 58px); padding: 8px 10px 10px; }
     .screen { padding: 16px 14px; }
     .hud { display: none; }
     .lv-num { font-size: 64px; }
@@ -544,18 +525,10 @@
     <span class="hbar"><i id="hud-xp" style="width:0%"></i></span>
     <span class="htitle" id="hud-title">Dabbler</span>
   </div>
-  <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS &nbsp;·&nbsp; <button id="refreshbtn" title="Refresh from database">↻</button></div>
+  <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS &nbsp;·&nbsp; <button id="navbtn" title="Navigation (or right-click anywhere)">◆</button> <button id="refreshbtn" title="Refresh from database">↻</button></div>
 </header>
 
 <main id="main">
-  <nav id="menu">
-    <button class="mbtn" data-s="quest">Protocol<small>1</small></button>
-    <button class="mbtn" data-s="status">Status<small>2</small></button>
-    <button class="mbtn" data-s="training">Training<small>3</small></button>
-    <button class="mbtn" data-s="skills">Skills<small>4</small></button>
-    <button class="mbtn" data-s="syslog">System Log<small>5</small></button>
-    <button class="mbtn" data-s="achieve">Trophies<small>6</small></button>
-  </nav>
   <div id="viewport">
   <section class="panel screen" id="status">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
@@ -1011,10 +984,8 @@
   /* game screens */
   function show(id) {
     document.querySelectorAll(".screen").forEach(x => x.classList.toggle("active", x.id === id));
-    document.querySelectorAll(".mbtn").forEach(b => b.classList.toggle("active", b.dataset.s === id));
     localStorage.setItem("screen", id);
   }
-  document.querySelectorAll(".mbtn").forEach(b => b.onclick = () => show(b.dataset.s));
   addEventListener("keydown", e => {
     if (e.target.matches("input,select,textarea")) return;
     const m = { 1: "quest", 2: "status", 3: "training", 4: "skills", 5: "syslog", 6: "achieve" }[e.key];
@@ -1046,13 +1017,17 @@
       g.addEventListener("click", () => { show(g.dataset.s); radialEl.classList.remove("on"); }));
   })();
   const radialEl = $("radial");
+  function openRadial(x, y) {
+    radialEl.style.left = Math.min(Math.max(x - 120, 4), innerWidth - 244) + "px";
+    radialEl.style.top = Math.min(Math.max(y - 120, 4), innerHeight - 244) + "px";
+    radialEl.classList.add("on");
+  }
   addEventListener("contextmenu", e => {
     if (e.target.closest("input,select,textarea")) return;
     e.preventDefault();
-    radialEl.style.left = Math.min(Math.max(e.clientX - 120, 4), innerWidth - 244) + "px";
-    radialEl.style.top = Math.min(Math.max(e.clientY - 120, 4), innerHeight - 244) + "px";
-    radialEl.classList.add("on");
+    openRadial(e.clientX, e.clientY);
   });
+  $("navbtn").onclick = e => { e.stopPropagation(); openRadial(innerWidth / 2, innerHeight / 2); };
   addEventListener("click", e => { if (!e.target.closest("#radial")) radialEl.classList.remove("on"); });
   addEventListener("keydown", e => { if (e.key === "Escape") radialEl.classList.remove("on"); });
 
