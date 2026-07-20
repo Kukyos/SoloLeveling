@@ -336,7 +336,7 @@ BACKUP_DIR = Path(__file__).with_name("backups")
 def backup():
     """Daily rotating copy of all data files; keeps the last 7 days."""
     dest = BACKUP_DIR / date.today().isoformat()
-    if BLOB or dest.exists():  # cloud mode: data lives in Blob, nothing local to snapshot
+    if BLOB or REMOTE or dest.exists():  # cloud mode: data lives in Blob, nothing local to snapshot
         return
     dest.mkdir(parents=True, exist_ok=True)
     for p in (DB, SF, SKILLS_F, WORK_F):
@@ -654,7 +654,7 @@ def cmd_run():
                     print(f"toast failed for {t['id']}: {e}")
         except Exception as e:
             print("loop error:", e)
-        time.sleep(30)
+        time.sleep(90 if REMOTE else 30)  # remote polling costs cloud invocations
 
 
 def demo():

@@ -466,7 +466,7 @@
 <header>
   <span class="diamond">◆</span>
   <h1>Polymath OS</h1>
-  <div class="right"><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS</div>
+  <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS</div>
 </header>
 
 <main id="main">
@@ -646,9 +646,12 @@
       setTimeout(() => $("main").classList.remove("shake"), 450);
     }
     ev.target.closest(".q").classList.add("flash");
-    await fetch("/api/act", { method: "POST", body: JSON.stringify({ id: q.id, action }) });
+    const r = await fetch("/api/act", { method: "POST", body: JSON.stringify({ id: q.id, action }) });
+    syncErr(!r.ok);
     refresh();
   }
+
+  function syncErr(on) { $("syncerr").style.display = on ? "" : "none"; }
 
   function render(s) {
     $("date").textContent = s.date;
@@ -916,7 +919,13 @@
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
   async function refresh() {
-    render(await (await fetch("/api/state")).json());
+    try {
+      const r = await fetch("/api/state");
+      if (r.ok) { render(await r.json()); syncErr(false); }
+      else syncErr(true);
+    } catch {
+      syncErr(true);
+    }
   }
   refresh();
   setInterval(refresh, 20000);
