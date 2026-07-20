@@ -76,18 +76,23 @@ _blob_base = None  # store's public base url, resolved lazily
 
 
 def _blob_req(method, url, body=None, headers=None):
+    import urllib.error
     import urllib.request
     req = urllib.request.Request(url, data=body, method=method, headers={
         "Authorization": f"Bearer {BLOB}", "x-api-version": "12", **(headers or {})})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return r.read()
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"blob api {e.code}: {e.read()[:300]}") from None
 
 
 def _blob_save(name, text):
     global _blob_base
     resp = json.loads(_blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
-        "x-add-random-suffix": "0", "x-allow-overwrite": "1",
-        "x-cache-control-max-age": "0", "x-content-type": "application/json"}))
+        "x-vercel-blob-access": "public", "x-add-random-suffix": "false",
+        "x-allow-overwrite": "true", "x-cache-control-max-age": "60",
+        "x-content-type": "application/json"}))
     _blob_base = resp["url"][: -len(name) - 1]
 
 
