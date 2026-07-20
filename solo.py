@@ -96,11 +96,13 @@ def _blob_list(name):
 
 
 def _blob_save(name, text):
-    # Write a brand-new version every time (random suffix): no overwrite conflicts,
-    # no moment where the file doesn't exist. Then prune older versions, best-effort.
-    _blob_req("PUT", f"{BLOB_API}/?pathname={name}", text.encode(), {
-        "x-vercel-blob-access": BLOB_ACCESS, "x-add-random-suffix": "true",
-        "x-cache-control-max-age": "60", "x-content-type": "application/json"})
+    # Write a brand-new timestamped version every time: no overwrite conflicts,
+    # no moment where the file doesn't exist, no reliance on API option headers.
+    stem, ext = name.rsplit(".", 1)
+    versioned = f"{stem}-{int(time.time() * 1000)}.{ext}"
+    _blob_req("PUT", f"{BLOB_API}/?pathname={versioned}", text.encode(), {
+        "x-vercel-blob-access": BLOB_ACCESS, "x-cache-control-max-age": "60",
+        "x-content-type": "application/json"})
     try:
         old = [b["url"] for b in _blob_list(name)[1:]]
         if old:
