@@ -100,8 +100,10 @@ BLOB_ACCESS = os.environ.get("BLOB_ACCESS", "private")
 
 # Upstash Redis (Vercel Marketplace): all data files live in ONE key, so a
 # dashboard refresh costs a single command instead of eight blob ops.
-KV_URL = os.environ.get("KV_REST_API_URL") or os.environ.get("UPSTASH_REDIS_REST_URL", "")
-KV_TOKEN = os.environ.get("KV_REST_API_TOKEN") or os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+KV_URL = (os.environ.get("POLYMATH_KV_REST_API_URL") or os.environ.get("KV_REST_API_URL")
+          or os.environ.get("UPSTASH_REDIS_REST_URL", ""))
+KV_TOKEN = (os.environ.get("POLYMATH_KV_REST_API_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
+            or os.environ.get("UPSTASH_REDIS_REST_TOKEN", ""))
 KV_KEY = "solo"
 _kv_cache = {"t": 0.0, "doc": None}
 

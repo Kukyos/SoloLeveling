@@ -121,6 +121,12 @@
   .hud .hbar { width: 110px; height: 6px; border: 1px solid var(--line-dim); background: rgba(255, 140, 40, .07); overflow: hidden; }
   .hud .hbar i { display: block; height: 100%; background: linear-gradient(90deg, #ff7a00, var(--orange-hot)); box-shadow: 0 0 10px rgba(255, 140, 30, .8); transition: width .6s ease; }
   .hud .htitle { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
+  #refreshbtn {
+    background: none; border: 1px solid var(--line-dim); color: var(--orange-hot);
+    font-size: 13px; padding: 1px 8px; cursor: pointer; transition: box-shadow .15s, transform .3s;
+  }
+  #refreshbtn:hover { box-shadow: 0 0 10px rgba(255, 130, 20, .5); }
+  #refreshbtn.spin { transform: rotate(360deg); }
   @keyframes shake {
     20% { transform: translate(-7px, 2px); } 40% { transform: translate(6px, -3px); }
     60% { transform: translate(-4px, 2px); } 80% { transform: translate(3px, -1px); }
@@ -538,7 +544,7 @@
     <span class="hbar"><i id="hud-xp" style="width:0%"></i></span>
     <span class="htitle" id="hud-title">Dabbler</span>
   </div>
-  <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS</div>
+  <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS &nbsp;·&nbsp; <button id="refreshbtn" title="Refresh from database">↻</button></div>
 </header>
 
 <main id="main">
@@ -1061,8 +1067,13 @@
       syncErr(true);
     }
   }
+  $("refreshbtn").onclick = () => {
+    $("refreshbtn").classList.add("spin");
+    refresh().finally(() => setTimeout(() => $("refreshbtn").classList.remove("spin"), 350));
+  };
   refresh();
-  setInterval(refresh, 20000);
+  setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 45000);
+  addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
 </script>
 </body>
 </html>
