@@ -197,16 +197,8 @@ def advance(t, after=None):
     t["next"] = next_occurrence(t["days"], t["time"], after).isoformat() if t.get("days") else None
 
 
-def level_info(total_xp):
-    lvl, need = 1, 100
-    while total_xp >= need:
-        total_xp -= need
-        lvl += 1
-        need = 100 + (lvl - 1) * 50
-    return lvl, total_xp, need
-
-
-# Main-level curve: cumulative XP to reach level L is A*(L-1)^B.
+# One curve for everything — main level, stats, skills, muscles.
+# Cumulative XP to reach level L is A*(L-1)^B.
 # Tuned so a year of the full routine (~180k XP) lands level 100,
 # and level 200 costs roughly two further years (3x total).
 CURVE_A, CURVE_B = 122.0, 1.585
@@ -415,17 +407,20 @@ def state():
 
     skills = load_json(SKILLS_F, [])
     for sk in skills:
-        slvl, sinto, sneed = level_info(sk["xp"])
+        slvl, sinto, sneed = main_level(sk["xp"])
         sk.update(level=slvl, into=sinto, need=sneed)
 
     wlog = load_json(WORK_F, [])
     muscles = []
     for m in MUSCLES:
         mine = [e for e in wlog if e["m"] == m]
-        mlvl, minto, mneed = level_info(sum(e["s"] * SET_XP for e in mine))
+        mlvl, minto, mneed = main_level(sum(e["s"] * SET_XP for e in mine))
         last = max((e["d"] for e in mine), default=None)
         muscles.append({"m": m, "level": mlvl, "into": minto, "need": mneed,
                         "last": (date.today() - date.fromisoformat(last)).days if last else None})
+
+    statinfo = {k: dict(zip(("level", "into", "need"), main_level(st["xp"].get(k, 0))))
+                for k in STATS}
     exlast = {}
     for e in wlog:
         exlast[e["ex"]] = {"w": e["w"], "r": e["r"], "s": e["s"], "m": e["m"], "d": e["d"]}
@@ -475,10 +470,10 @@ def state():
         ("The Consistent", "Hold a 7-day streak", stk >= 7),
         ("Momentum", "Reach level 10", lvl >= 10),
         ("Quarter Mark", "Reach level 25", lvl >= 25),
-        ("Well-Rounded", "Raise every stat to 11", all(st["xp"].get(k, 0) >= 100 for k in STATS)),
+        ("Well-Rounded", "Raise every stat to level 5", all(v["level"] >= 5 for v in statinfo.values())),
         ("Iron Body", "Log 100 training sets", sets >= 100),
         ("Ton Mover", "Move 10,000 kg of total volume", vol >= 10000),
-        ("Apprentice", "Level up any skill", any(x["xp"] >= 100 for x in skills)),
+        ("Apprentice", "Level up any skill", any(x["level"] >= 2 for x in skills)),
         ("Scholar", "Earn 1,000 INT XP", st["xp"].get("INT", 0) >= 1000),
         ("The Polymath", "Reach level 100 — one full year", lvl >= 100),
     ]]
@@ -487,7 +482,7 @@ def state():
             "tomorrow": tomorrow, "achieves": achieves, "focus": focus, "week": week,
             "quests": quests, "xp": st["xp"], "total": total, "level": lvl,
             "into": into, "need": need, "rank": rank_of(lvl), "streak": stk,
-            "title": title_of(lvl, stk), "days14": days14, "feed": feed,
+            "title": title_of(lvl, stk), "days14": days14, "feed": feed, "statinfo": statinfo,
             "skills": skills, "muscles": muscles, "exlast": exlast,
             "wtoday": [e for e in wlog if e["d"] == today]}
 
@@ -676,9 +671,6 @@ def demo():
     assert next_occurrence("daily", "09:00", base).isoformat() == "2026-07-20T09:00:00"
     assert next_occurrence("mon,wed", "18:00", base).weekday() == 0
     assert next_occurrence("sun", "11:00", base).isoformat() == "2026-07-26T11:00:00"
-    assert level_info(0) == (1, 0, 100)
-    assert level_info(100) == (2, 0, 150)
-    assert level_info(260) == (3, 10, 200)
     assert rank_of(1) == "E" and rank_of(30) == "C" and rank_of(105) == "S"
     assert main_level(0)[0] == 1 and main_level(121)[0] == 1 and main_level(123)[0] == 2
     assert main_level(180000)[0] in (100, 101)      # 1 year of full routine -> ~level 100

@@ -66,20 +66,61 @@
 
   main {
     position: relative; z-index: 1;
-    display: grid; grid-template-columns: 330px minmax(0, 1fr) 410px;
-    gap: 16px; max-width: 1560px; margin: 0 auto;
-    padding: 12px 22px 18px; height: calc(100vh - 62px);
+    display: flex; gap: 18px; max-width: 1560px; margin: 0 auto;
+    padding: 12px 22px 18px; height: calc(100vh - 64px);
   }
-  .col {
-    display: flex; flex-direction: column; gap: 16px;
-    overflow-y: auto; min-height: 0; padding: 2px;
+  main.shake { animation: shake .4s; }
+
+  /* ---------- game menu rail ---------- */
+  #menu { display: flex; flex-direction: column; gap: 10px; width: 168px; flex: none; }
+  .mbtn {
+    position: relative; text-align: left;
+    font-family: var(--disp); font-size: 12px; letter-spacing: .28em; text-transform: uppercase;
+    color: var(--dim); background: linear-gradient(180deg, rgba(16, 20, 28, .5), rgba(9, 12, 18, .5));
+    border: 1px solid var(--line-dim); padding: 14px 14px 12px; cursor: pointer;
+    transition: color .15s, border-color .15s, box-shadow .2s, background .2s, transform .1s;
+  }
+  .mbtn::before { content: "◇  "; color: var(--dim); }
+  .mbtn small {
+    display: block; margin-top: 4px; font-family: var(--mono); font-size: 8px;
+    letter-spacing: .2em; color: var(--dim); opacity: .6;
+  }
+  .mbtn:hover, .mbtn:focus-visible {
+    color: var(--orange-hot); border-color: var(--line); outline: none; transform: translateX(2px);
+  }
+  .mbtn.active {
+    color: var(--orange-pale); border-color: var(--orange);
+    background: linear-gradient(90deg, rgba(255, 130, 20, .14), rgba(255, 130, 20, .03));
+    box-shadow: 0 0 18px rgba(255, 120, 0, .25), inset 0 0 24px rgba(255, 110, 0, .07);
+    text-shadow: 0 0 10px rgba(255, 140, 30, .6);
+  }
+  .mbtn.active::before { content: "◆  "; color: var(--orange); }
+
+  /* ---------- viewport: one active screen ---------- */
+  #viewport { position: relative; flex: 1; min-height: 0; }
+  .screen {
+    position: absolute; inset: 0; display: none;
+    overflow-y: auto; padding: 24px 30px;
     scrollbar-width: thin; scrollbar-color: rgba(255, 140, 40, .3) transparent;
   }
-  .col::-webkit-scrollbar { width: 6px; }
-  .col::-webkit-scrollbar-track { background: transparent; }
-  .col::-webkit-scrollbar-thumb { background: rgba(255, 140, 40, .25); }
-  .col::-webkit-scrollbar-thumb:hover { background: rgba(255, 140, 40, .5); }
-  main.shake { animation: shake .4s; }
+  .screen::-webkit-scrollbar { width: 6px; }
+  .screen::-webkit-scrollbar-track { background: transparent; }
+  .screen::-webkit-scrollbar-thumb { background: rgba(255, 140, 40, .25); }
+  .screen::-webkit-scrollbar-thumb:hover { background: rgba(255, 140, 40, .5); }
+  .screen.active { display: block; animation: rise .35s cubic-bezier(.2, .9, .3, 1) both; }
+
+  /* ---------- header HUD ---------- */
+  .hud { display: flex; align-items: center; gap: 14px; margin-left: 26px; }
+  .hud .hlv { font-size: 13px; letter-spacing: .2em; color: var(--dim); }
+  .hud .hlv b { color: var(--orange-pale); font-size: 16px; text-shadow: 0 0 10px rgba(255, 140, 30, .7); }
+  .hud .hrank {
+    font-size: 13px; font-weight: 700; color: var(--orange-hot);
+    border: 1px solid var(--line); padding: 2px 9px;
+    box-shadow: 0 0 10px rgba(255, 120, 0, .2);
+  }
+  .hud .hbar { width: 110px; height: 6px; border: 1px solid var(--line-dim); background: rgba(255, 140, 40, .07); overflow: hidden; }
+  .hud .hbar i { display: block; height: 100%; background: linear-gradient(90deg, #ff7a00, var(--orange-hot)); box-shadow: 0 0 10px rgba(255, 140, 30, .8); transition: width .6s ease; }
+  .hud .htitle { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
   @keyframes shake {
     20% { transform: translate(-7px, 2px); } 40% { transform: translate(6px, -3px); }
     60% { transform: translate(-4px, 2px); } 80% { transform: translate(3px, -1px); }
@@ -92,20 +133,12 @@
     box-shadow: 0 0 34px rgba(255, 110, 0, .12), inset 0 0 80px rgba(255, 110, 0, .05);
     padding: 18px 20px;
     transform-origin: 50% 0;
-    animation: rise .5s cubic-bezier(.2, .9, .3, 1) both;
   }
-  .col .panel:nth-child(2) { animation-delay: .14s; }
-  .col .panel:nth-child(3) { animation-delay: .28s; }
-  #quest.panel { animation-delay: .07s; }
   @keyframes rise {
     0% { opacity: 0; transform: scaleY(.04); }
     55% { opacity: 1; transform: scaleY(1.03); }
     100% { transform: scaleY(1); }
   }
-  .panel.collapsed { max-height: 56px; overflow: hidden; }
-  .panel-title { cursor: pointer; user-select: none; }
-  .panel-title::after { content: "  ▾"; color: var(--dim); font-size: 9px; }
-  .panel.collapsed .panel-title::after { content: "  ▸"; color: var(--orange); }
   .panel > b { position: absolute; width: 16px; height: 16px; pointer-events: none; }
   .panel > b.tl { top: -1px; left: -1px; border-top: 2px solid var(--orange); border-left: 2px solid var(--orange); }
   .panel > b.tr { top: -1px; right: -1px; border-top: 2px solid var(--orange); border-right: 2px solid var(--orange); }
@@ -438,16 +471,16 @@
   }
   .q.next { border-left-color: var(--orange-hot); background: rgba(255, 140, 40, .04); }
 
-  @media (max-width: 1180px) {
-    main { display: flex; flex-direction: column; height: auto; gap: 16px; }
-    .col { display: contents; }
-  }
-  @media (max-width: 760px) {
-    main { padding: 12px 12px 40px; }
-    .panel { padding: 16px 14px; }
+  @media (max-width: 900px) {
+    main { flex-direction: column-reverse; height: calc(100vh - 58px); padding: 8px 10px 10px; gap: 10px; }
+    #menu { flex-direction: row; width: auto; overflow-x: auto; gap: 6px; padding-bottom: 2px; }
+    .mbtn { flex: none; font-size: 10px; letter-spacing: .15em; padding: 9px 10px; }
+    .mbtn small { display: none; }
+    .screen { padding: 16px 14px; }
+    .hud { display: none; }
     .lv-num { font-size: 64px; }
-    header { flex-wrap: wrap; padding: 16px 14px 2px; }
-    header .right { flex-basis: 100%; margin-left: 27px; }
+    header { padding: 12px 12px 2px; }
+    header .right { font-size: 10px; }
     .q { grid-template-columns: 46px 1fr auto; }
     .q .chip, .q .gain { display: none; }
     #wform { grid-template-columns: 1fr 1fr; }
@@ -466,12 +499,26 @@
 <header>
   <span class="diamond">◆</span>
   <h1>Polymath OS</h1>
+  <div class="hud">
+    <span class="hlv">LV <b id="hud-lv">1</b></span>
+    <span class="hrank" id="hud-rank">E</span>
+    <span class="hbar"><i id="hud-xp" style="width:0%"></i></span>
+    <span class="htitle" id="hud-title">Dabbler</span>
+  </div>
   <div class="right"><span id="syncerr" style="display:none;color:var(--late)">SYNC FAILED — retrying &nbsp;·&nbsp; </span><span id="date"></span> &nbsp;·&nbsp; <span id="clock"></span> &nbsp;·&nbsp; STREAK <b id="streak">0</b> DAYS</div>
 </header>
 
 <main id="main">
-  <div class="col">
-  <section class="panel" id="status">
+  <nav id="menu">
+    <button class="mbtn" data-s="quest">Protocol<small>1</small></button>
+    <button class="mbtn" data-s="status">Status<small>2</small></button>
+    <button class="mbtn" data-s="training">Training<small>3</small></button>
+    <button class="mbtn" data-s="skills">Skills<small>4</small></button>
+    <button class="mbtn" data-s="syslog">System Log<small>5</small></button>
+    <button class="mbtn" data-s="achieve">Trophies<small>6</small></button>
+  </nav>
+  <div id="viewport">
+  <section class="panel screen" id="status">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="panel-title">Status</div>
     <div class="lv-row">
@@ -486,15 +533,13 @@
     <div class="stats" id="stats"></div>
   </section>
 
-  <section class="panel" id="achieve">
+  <section class="panel screen" id="achieve">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="panel-title">Achievements</div>
     <div id="badges"></div>
   </section>
-  </div>
 
-  <div class="col">
-  <section class="panel" id="quest">
+  <section class="panel screen" id="quest">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="quest-head">
       <div class="alert"><b>!</b></div>
@@ -508,10 +553,8 @@
     <div id="quests"></div>
     <div id="tomorrow"></div>
   </section>
-  </div>
 
-  <div class="col">
-  <section class="panel" id="training">
+  <section class="panel screen" id="training">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="panel-title">Training Log</div>
     <div class="muscle-grid" id="muscles"></div>
@@ -528,7 +571,7 @@
     <div id="wtoday"></div>
   </section>
 
-  <section class="panel" id="skills">
+  <section class="panel screen" id="skills">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="panel-title">Skills</div>
     <div id="slist"></div>
@@ -536,7 +579,7 @@
       <button class="mini" type="submit">+ Add</button></form>
   </section>
 
-  <section class="panel" id="syslog">
+  <section class="panel screen" id="syslog">
     <b class="tl"></b><b class="tr"></b><b class="bl"></b><b class="br"></b><div class="sweep"></div>
     <div class="panel-title">System Log</div>
     <div class="log-wrap">
@@ -598,10 +641,10 @@
     $("clock").textContent = new Date().toTimeString().slice(0, 8);
   }, 1000);
 
-  /* ---- radar chart ---- */
-  function radar(xp) {
+  /* ---- radar chart (stat levels, brutal curve) ---- */
+  function radar(si) {
     const C = [110, 100], R = 74, keys = Object.keys(STATS);
-    const maxXp = Math.max(100, ...keys.map(k => xp[k] || 0));
+    const maxLv = Math.max(6, ...keys.map(k => si[k].level));
     const pt = (i, f) => {
       const a = -Math.PI / 2 + i * Math.PI / 3;
       return [C[0] + Math.cos(a) * R * f, C[1] + Math.sin(a) * R * f];
@@ -614,10 +657,9 @@
       s += `<line class="axis" x1="${C[0]}" y1="${C[1]}" x2="${x}" y2="${y}"/>`;
       const [lx, ly] = pt(i, 1.24);
       s += `<text class="lbl" x="${lx}" y="${ly + 3}">${keys[i]}</text>`;
-      const [vx, vy] = pt(i, 1.24);
-      s += `<text class="val-lbl" x="${vx}" y="${vy + 14}">${10 + Math.floor((xp[keys[i]] || 0) / 100)}</text>`;
+      s += `<text class="val-lbl" x="${lx}" y="${ly + 14}">${si[keys[i]].level}</text>`;
     }
-    const data = keys.map((k, i) => pt(i, .12 + .88 * (xp[k] || 0) / maxXp));
+    const data = keys.map((k, i) => pt(i, .1 + .9 * si[k].level / maxLv));
     s += `<polygon class="data" points="${data.map(p => p.join(",")).join(" ")}"/>`;
     s += data.map(p => `<circle class="dot" cx="${p[0]}" cy="${p[1]}" r="2.2"/>`).join("");
     $("radar").innerHTML = s;
@@ -676,15 +718,21 @@
     }
     localStorage.setItem("lv", s.level);
 
-    radar(s.xp);
+    $("hud-lv").textContent = s.level;
+    $("hud-rank").textContent = s.rank;
+    $("hud-title").textContent = s.title;
+    $("hud-xp").style.width = (100 * s.into / s.need) + "%";
+
+    radar(s.statinfo);
 
     $("stats").replaceChildren(...Object.entries(STATS).map(([code, name]) => {
-      const xp = s.xp[code] || 0;
+      const st = s.statinfo[code];
       const div = document.createElement("div");
       div.className = "stat";
+      div.title = `${st.into} / ${st.need} XP to level ${st.level + 1}`;
       div.innerHTML = `<span class="code">${code}</span><span class="name">${name}</span>
-        <span class="val">${10 + Math.floor(xp / 100)}</span>
-        <div class="bar"><i style="width:${xp % 100}%"></i></div>`;
+        <span class="val">${st.level}</span>
+        <div class="bar"><i style="width:${100 * st.into / st.need}%"></i></div>`;
       return div;
     }));
 
@@ -903,18 +951,19 @@
     refresh();
   });
 
-  /* collapsible panels, persisted */
-  document.querySelectorAll(".panel").forEach(p => {
-    const t = p.querySelector(".panel-title");
-    if (!t) return;
-    if (JSON.parse(localStorage.getItem("collapsed") || "[]").includes(p.id))
-      p.classList.add("collapsed");
-    t.addEventListener("click", () => {
-      p.classList.toggle("collapsed");
-      localStorage.setItem("collapsed",
-        JSON.stringify([...document.querySelectorAll(".panel.collapsed")].map(x => x.id)));
-    });
+  /* game screens */
+  function show(id) {
+    document.querySelectorAll(".screen").forEach(x => x.classList.toggle("active", x.id === id));
+    document.querySelectorAll(".mbtn").forEach(b => b.classList.toggle("active", b.dataset.s === id));
+    localStorage.setItem("screen", id);
+  }
+  document.querySelectorAll(".mbtn").forEach(b => b.onclick = () => show(b.dataset.s));
+  addEventListener("keydown", e => {
+    if (e.target.matches("input,select,textarea")) return;
+    const m = { 1: "quest", 2: "status", 3: "training", 4: "skills", 5: "syslog", 6: "achieve" }[e.key];
+    if (m) show(m);
   });
+  show(localStorage.getItem("screen") || "quest");
 
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
