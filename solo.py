@@ -108,11 +108,17 @@ def _blob_save(name, text):
 
 
 def _blob_load(name):
-    # list (authenticated) yields a fetchable download url even on private stores
     blobs = json.loads(_blob_req("GET", f"{BLOB_API}/?prefix={name}&limit=1")).get("blobs", [])
     if not blobs or blobs[0]["pathname"] != name:
         return None
-    return _blob_req("GET", blobs[0].get("downloadUrl") or blobs[0]["url"]).decode()
+    # private blobs download from the API host with auth; public ones from their url
+    for url in (f"{BLOB_API}/{name}", blobs[0].get("downloadUrl"), blobs[0].get("url")):
+        if url:
+            try:
+                return _blob_req("GET", url, {"x-vercel-blob-access": BLOB_ACCESS}).decode()
+            except RuntimeError:
+                continue
+    raise RuntimeError(f"blob {name}: listed but not fetchable")
 
 
 # Networks that MITM blob.vercel-storage.com (campus FortiGate) can't reach Blob
