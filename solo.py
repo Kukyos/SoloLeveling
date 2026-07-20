@@ -529,7 +529,10 @@ class Handler(BaseHTTPRequestHandler):
         if BLOB:
             _blob_save(name, body.decode())
         else:
-            Path(__file__).with_name(name).write_text(body.decode(), encoding="utf-8")
+            try:
+                Path(__file__).with_name(name).write_text(body.decode(), encoding="utf-8")
+            except OSError:
+                return self._send(503, b'{"error": "no Blob store connected to this deployment"}')
         self._send(200, b"{}")
 
     def do_POST(self):
