@@ -41,7 +41,9 @@ STATS = {"STR": "Strength", "AGI": "Agility", "INT": "Intelligence",
 RANKS = [(100, "S"), (75, "A"), (50, "B"), (25, "C"), (10, "D"), (0, "E")]
 MUSCLES = ["CHEST", "BACK", "SHOULDERS", "BICEPS", "TRICEPS", "LEGS", "ABS"]
 SET_XP = 15               # muscle XP per logged set
-PORT = 7777
+SKILL_GRACE_DAYS, SKILL_DECAY = 7, 6       # skill xp atrophies 6/day after 7 idle days
+MUSCLE_GRACE_DAYS, MUSCLE_DECAY = 10, 12   # muscle xp atrophies 12/day after 10 idle days
+PORT = int(os.environ.get("SOLO_PORT", "7777"))  # overlay can pick a free port
 NAG_MINUTES = 15
 FOCUS_MINUTES = 25
 WATER_EVERY_MIN = 90      # hydration nudge cadence, no tracking, no penalty
@@ -188,6 +190,14 @@ def _blob_load(name):
 REMOTE = os.environ.get("SOLO_REMOTE", "").rstrip("/")
 DATA_FILES = {"tasks.json", "stats.json", "skills.json", "workouts.json"}
 
+# SOLO_SYNC: cloud base URL for LOCAL-FIRST + background sync. Unlike REMOTE (which routes ALL
+# reads/writes through the cloud), SYNC keeps reads/writes local and reconciles in the background
+# so the laptop stays fast/offline while mobile edits still land once it's online. Same /api/data
+# relay, so it survives the campus firewall too.
+SYNC_URL = os.environ.get("SOLO_SYNC", "").rstrip("/")
+SYNC_PW = os.environ.get("SOLO_SYNC_PW", "")
+SYNC_EVERY = int(os.environ.get("SOLO_SYNC_EVERY", "60"))
+
 
 def _remote_req(method, name, body=None):
     import urllib.request
@@ -273,6 +283,13 @@ def main_level(total):
     return lvl, int(total - lo), max(1, int(hi - lo))
 
 
+def _decayed(xp, idle_days, grace, per_day):
+    """Realistic atrophy: xp bleeds once idle beyond the grace window (display-only, resets on use)."""
+    if idle_days is None:
+        return xp
+    return max(0, xp - max(0, idle_days - grace) * per_day)
+
+
 def rank_of(lvl):
     return next(r for th, r in RANKS if lvl >= th)
 
@@ -338,7 +355,7 @@ def reckon():
                 if t["id"] not in logged:
                     stat, xp = t.get("stat", "DIS"), t.get("xp", 10)
                     old = st["xp"].get(stat, 0)
-                    st["xp"][stat] = max(0, old - xp)
+                    st["xp"][stat] = old - xp  # ponytail: same debt model as explicit Fail
                     st["log"].append({"d": ds, "id": t["id"], "s": stat, "x": -xp,
                                       "ap": st["xp"][stat] - old, "auto": True})
             if due and all(any(e["d"] == ds and e["id"] == t["id"] and e["x"] > 0
@@ -369,7 +386,9 @@ def apply_action(tid, action, when_id="30"):
                 stat, xp = t.get("stat", "VIT"), t.get("xp", 10)
                 delta = 0 if (rem or action == "dud") else (xp if action == "done" else -2 * xp)
                 old = st["xp"].get(stat, 0)
-                st["xp"][stat] = max(0, old + delta)
+                # ponytail: allow negative "debt" so the full fail penalty bites total/level;
+                # per-stat bars clamp at 0 for display in state(). Keeps undo exactly reversible.
+                st["xp"][stat] = old + delta
                 e = {"d": today, "id": tid, "s": stat, "x": delta,
                      "ap": st["xp"][stat] - old}
                 if action == "dud":
@@ -384,7 +403,7 @@ def apply_action(tid, action, when_id="30"):
             e = next((x for x in st["log"] if x["d"] == today and x["id"] == tid), None)
             if e:
                 st["log"].remove(e)
-                st["xp"][e["s"]] = max(0, st["xp"].get(e["s"], 0) - e.get("ap", e["x"]))
+                st["xp"][e["s"]] = st["xp"].get(e["s"], 0) - e.get("ap", e["x"])  # no clamp: exact reverse of debt
                 save_stats(st)
                 if t.get("days"):
                     t["next"] = f"{today}T{t['time']}:00"
@@ -483,24 +502,28 @@ def state():
                        "state": None if not e else "dud" if e.get("dud")
                                 else "failed" if e["x"] < 0 else "done"})
     quests.sort(key=lambda q: q["time"])
-    total = sum(st["xp"].values())
+    total = max(0, sum(st["xp"].values()))  # debt can push the raw sum negative; floor the displayed total/level at 0
     lvl, into, need = main_level(total)
 
     skills = load_json(SKILLS_F, [])
     for sk in skills:
-        slvl, sinto, sneed = main_level(sk["xp"])
-        sk.update(level=slvl, into=sinto, need=sneed)
+        idle = (date.today() - date.fromisoformat(sk["last"])).days if sk.get("last") else None
+        slvl, sinto, sneed = main_level(_decayed(sk.get("xp", 0), idle, SKILL_GRACE_DAYS, SKILL_DECAY))
+        sk.update(level=slvl, into=sinto, need=sneed,
+                  decay_in=None if idle is None else SKILL_GRACE_DAYS - idle)  # <=0 = atrophying
 
     wlog = load_json(WORK_F, [])
     muscles = []
     for m in MUSCLES:
         mine = [e for e in wlog if e["m"] == m]
-        mlvl, minto, mneed = main_level(sum(e["s"] * SET_XP for e in mine))
         last = max((e["d"] for e in mine), default=None)
-        muscles.append({"m": m, "level": mlvl, "into": minto, "need": mneed,
-                        "last": (date.today() - date.fromisoformat(last)).days if last else None})
+        idle = (date.today() - date.fromisoformat(last)).days if last else None
+        base = sum(e["s"] * SET_XP for e in mine)
+        mlvl, minto, mneed = main_level(_decayed(base, idle, MUSCLE_GRACE_DAYS, MUSCLE_DECAY))
+        muscles.append({"m": m, "level": mlvl, "into": minto, "need": mneed, "last": idle,
+                        "decay_in": None if idle is None else MUSCLE_GRACE_DAYS - idle})
 
-    statinfo = {k: dict(zip(("level", "into", "need"), main_level(st["xp"].get(k, 0))))
+    statinfo = {k: dict(zip(("level", "into", "need"), main_level(max(0, st["xp"].get(k, 0)))))
                 for k in STATS}
     exlast = {}
     for e in wlog:
@@ -563,7 +586,7 @@ def state():
 
     return {"now": now.strftime("%H:%M"), "date": now.strftime("%a %d %b %Y").upper(),
             "tomorrow": tomorrow, "achieves": achieves, "focus": focus, "week": week,
-            "quests": quests, "xp": st["xp"], "total": total, "level": lvl,
+            "quests": quests, "xp": {k: max(0, v) for k, v in st["xp"].items()}, "total": total, "level": lvl,
             "into": into, "need": need, "rank": rank_of(lvl), "streak": stk,
             "title": title_of(lvl, stk), "days14": days14, "feed": feed, "statinfo": statinfo,
             "skills": skills, "muscles": muscles, "exlast": exlast,
@@ -639,6 +662,7 @@ class Handler(BaseHTTPRequestHandler):
                     skills = load_json(SKILLS_F, [])
                     sk = next(x for x in skills if x["id"] == int(data["id"]))
                     sk["xp"] = sk.get("xp", 0) + max(0, int(data["mins"]))
+                    sk["last"] = date.today().isoformat()  # resets atrophy clock
                     save_json(SKILLS_F, skills)
             elif self.path == "/api/skill_add":
                 with lock:
@@ -654,8 +678,8 @@ class Handler(BaseHTTPRequestHandler):
                 with lock:
                     wlog = load_json(WORK_F, [])
                     wlog.append({"d": date.today().isoformat(), "ex": str(data["ex"]).strip()[:60],
-                                 "m": data["m"], "w": float(data["w"]),
-                                 "r": int(data["r"]), "s": max(1, int(data["s"]))})
+                                 "m": data["m"], "w": float(data["w"]), "r": int(data["r"]),
+                                 "s": max(1, int(data["s"])), "ts": time.time()})  # ts = stable merge key
                     save_json(WORK_F, wlog)
             else:
                 return self._send(404, b"{}")
@@ -665,6 +689,125 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *a):
         pass
+
+
+# ---------------- local-first sync (mobile ↔ laptop) ----------------
+
+def _cloud_req(method, name, body=None):
+    """One /api/data call to the SYNC cloud. 404 -> None (file not there yet)."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"{SYNC_URL}/api/data/{name}", data=body, method=method, headers={
+        "Authorization": "Basic " + base64.b64encode(f"solo:{SYNC_PW}".encode()).decode()})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
+
+
+def _stat_of(e):
+    return "VIT" if e.get("s") == "DIS" else e.get("s")  # DIS folded into VIT (matches reckon's migration)
+
+
+def _log_key(e):
+    return (e["d"], e["id"], _stat_of(e))  # <=1 normal entry per (day,task); id 0 = per-day bonus
+
+
+def _merge_stats(local, remote):
+    """Union the log; xp = local xp + the deltas of remote-only entries. Additive, so it never
+    needs xp==sum(log) to hold and survives the DIS migration. Conflict-free for the common case.
+    ponytail: an undo made AFTER a sync can be resurrected by the next pull (no tombstones);
+    upgrade to tombstoned deletes if that bites."""
+    lkeys = {_log_key(e) for e in local.get("log", [])}
+    xp = dict(local.get("xp", {}))
+    log = list(local.get("log", []))
+    for e in remote.get("log", []):
+        if _log_key(e) not in lkeys:
+            log.append(e)
+            s = _stat_of(e)
+            xp[s] = xp.get(s, 0) + e["x"]
+    log.sort(key=lambda e: (e["d"], e["id"]))
+    reckoned = max((x for x in (local.get("reckoned"), remote.get("reckoned")) if x), default=None)
+    out = {"xp": xp, "log": log}
+    if reckoned:
+        out["reckoned"] = reckoned
+    return out
+
+
+def _merge_workouts(local, remote):
+    def key(e):
+        return e.get("ts") or (e["d"], e["ex"], e["m"], e["w"], e["r"], e["s"])
+    seen = {}
+    for e in (local or []) + (remote or []):
+        seen.setdefault(key(e), e)  # new entries carry a ts so identical sets never falsely merge
+    return sorted(seen.values(), key=lambda e: e["d"])
+
+
+def _merge_skills(local, remote):
+    # ponytail: LWW per skill by `last` (xp is cumulative with no delta log). Concurrent same-day
+    # logging on both devices keeps the larger xp; add a skill log if that ever loses real minutes.
+    by = {}
+    for sk in (local or []) + (remote or []):
+        k = sk.get("id", sk.get("name"))
+        cur = by.get(k)
+        if cur is None or (sk.get("last") or "") > (cur.get("last") or "") \
+                or ((sk.get("last") or "") == (cur.get("last") or "") and sk.get("xp", 0) > cur.get("xp", 0)):
+            by[k] = sk
+    return list(by.values())
+
+
+def _merge_tasks(local, remote):
+    # Tasks are defined on the laptop; mobile only advances `next` on completion. Union by id,
+    # keep the entry with the later `next` (= most recent action) so no def is lost. next is ISO -> sorts.
+    by = {}
+    for t in (local or []) + (remote or []):
+        cur = by.get(t["id"])
+        if cur is None or (t.get("next") or "") > (cur.get("next") or ""):
+            by[t["id"]] = t
+    return sorted(by.values(), key=lambda t: t["id"])
+
+
+def merge_data(name, local, remote):
+    if remote is None:
+        return local
+    if local is None:
+        return remote
+    return {"stats.json": _merge_stats, "workouts.json": _merge_workouts,
+            "skills.json": _merge_skills, "tasks.json": _merge_tasks}[name](local, remote)
+
+
+def sync():
+    """Reconcile local data files with the cloud (SOLO_SYNC). Pull -> merge -> write local ->
+    push union. Offline or unconfigured = quiet no-op, retried next tick. No-op under REMOTE
+    (there everything already lives in the cloud)."""
+    if not SYNC_URL or REMOTE:
+        return False
+    changed = False
+    for name in ("stats.json", "workouts.json", "skills.json", "tasks.json"):
+        p = Path(__file__).with_name(name)
+        try:
+            raw = _cloud_req("GET", name)
+        except Exception as e:
+            print("sync pull failed:", e)
+            return changed  # offline: keep local as-is, try again later
+        remote = json.loads(raw) if raw else None
+        with lock:  # re-read + write local under the same lock the handlers use
+            local = json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+            merged = merge_data(name, local, remote)
+            if merged is None:
+                continue
+            if merged != local:
+                p.write_text(json.dumps(merged, indent=1, ensure_ascii=False), encoding="utf-8")
+                changed = True
+        if merged != remote:  # push outside the lock; network is slow
+            try:
+                _cloud_req("PUT", name, json.dumps(merged, ensure_ascii=False).encode())
+            except Exception as e:
+                print("sync push failed:", e)
+    return changed
 
 
 # ---------------- CLI ----------------
@@ -705,12 +848,34 @@ def cmd_run():
     global toaster
     from windows_toasts import InteractableWindowsToaster, Toast
     toaster = InteractableWindowsToaster("SoloLeveling")
+    sync()  # pull anything done on mobile first, so we don't nag for quests already cleared there
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f"SoloLeveling running. Dashboard: http://localhost:{PORT}  (Ctrl+C to stop)")
+
+    # ponytail: don't dump the whole overdue backlog as toasts at login. Mark everything
+    # currently due as already-nagged and fire ONE summary; the loop then nags only tasks that
+    # come due while running. Backlog re-nags on the normal 15-min cadence, not all at once.
+    with lock:
+        tasks = load()
+        now = datetime.now()
+        backlog = [t for t in tasks if t.get("notify", True) and t.get("next")
+                   and datetime.fromisoformat(t["next"]) <= now]
+        for t in backlog:
+            t["last_nag"] = now.timestamp()
+        if backlog:
+            save(tasks)
+    if backlog:
+        toaster.show_toast(Toast(["Update your progress",
+                                  f"{len(backlog)} quest(s) waiting — open Polymath OS."]))
+
     last_water = time.time()
+    last_sync = 0.0
     while True:
         try:
+            if SYNC_URL and time.time() - last_sync >= SYNC_EVERY:
+                sync()  # push local actions up, pull mobile's down; idempotent when nothing changed
+                last_sync = time.time()
             reckon()
             backup()
             now = datetime.now()
@@ -756,6 +921,23 @@ def demo():
     t = {"days": "mon,wed", "notify": True}
     assert scheduled_on(t, date(2026, 7, 20)) and not scheduled_on(t, date(2026, 7, 21))
     assert not scheduled_on({"days": "sun", "notify": False}, date(2026, 7, 19))
+
+    # sync merge: both sides' additions survive; no double-count; idempotent
+    L = {"xp": {"VIT": 10}, "log": [{"d": "2026-07-20", "id": 1, "s": "VIT", "x": 10}]}
+    R = {"xp": {"STR": 5}, "log": [{"d": "2026-07-20", "id": 2, "s": "STR", "x": 5}]}
+    m = _merge_stats(L, R)
+    assert len(m["log"]) == 2 and m["xp"] == {"VIT": 10, "STR": 5}, m
+    assert _merge_stats(m, m) == m, "stats merge must be idempotent"   # same key not re-added
+    assert _merge_stats(L, L)["xp"] == {"VIT": 10}, "no double-count on identical logs"
+    w = _merge_workouts([{"d": "1", "ex": "sq", "m": "LEGS", "w": 1, "r": 1, "s": 1, "ts": 1}],
+                        [{"d": "1", "ex": "sq", "m": "LEGS", "w": 1, "r": 1, "s": 1, "ts": 2}])
+    assert len(w) == 2, "distinct ts -> identical sets both kept"
+    sk = _merge_skills([{"id": 1, "name": "gtr", "xp": 5, "last": "2026-07-20"}],
+                       [{"id": 1, "name": "gtr", "xp": 9, "last": "2026-07-21"}])
+    assert sk == [{"id": 1, "name": "gtr", "xp": 9, "last": "2026-07-21"}], "LWW by last"
+    tk = _merge_tasks([{"id": 1, "title": "a", "next": "2026-07-20T09:00"}],
+                      [{"id": 1, "title": "a", "next": "2026-07-21T09:00"}, {"id": 2, "title": "b"}])
+    assert len(tk) == 2 and tk[0]["next"] == "2026-07-21T09:00", "union by id, later next wins"
     print("ok")
 
 
@@ -764,6 +946,25 @@ def cmd_skill(name):
     skills.append({"id": max((x["id"] for x in skills), default=0) + 1, "name": name, "xp": 0})
     save_json(SKILLS_F, skills)
     print(f"skill added: {name}")
+
+
+def cmd_sync(args):
+    """Manual reconcile.  solo.py sync         -> two-way union with the cloud
+                          solo.py sync --push  -> overwrite cloud with local (use once to claim
+                                                  local as source of truth; discards cloud-only data)."""
+    global SYNC_URL, SYNC_PW, REMOTE
+    if not SYNC_URL and REMOTE:  # fall back to the relay creds for a manual run from the raw env
+        SYNC_URL, SYNC_PW = REMOTE, os.environ.get("SOLO_PASSWORD", "")
+    REMOTE = ""  # reconcile the on-disk files, not cloud-direct
+    assert SYNC_URL, "set SOLO_SYNC (+SOLO_SYNC_PW) or SOLO_REMOTE (+SOLO_PASSWORD) first"
+    if "--push" in args:
+        for name in ("stats.json", "workouts.json", "skills.json", "tasks.json"):
+            p = Path(__file__).with_name(name)
+            if p.exists():
+                _cloud_req("PUT", name, p.read_bytes())
+                print("pushed", name)
+        return
+    print("synced" if sync() else "already in sync")
 
 
 def cmd_sync_up():
@@ -780,5 +981,5 @@ def cmd_sync_up():
 if __name__ == "__main__":
     cmd, rest = (sys.argv[1] if len(sys.argv) > 1 else "list"), sys.argv[2:]
     {"add": lambda: cmd_add(rest), "list": cmd_list, "rm": lambda: cmd_rm(int(rest[0])),
-     "skill": lambda: cmd_skill(rest[0]), "sync-up": cmd_sync_up,
+     "skill": lambda: cmd_skill(rest[0]), "sync-up": cmd_sync_up, "sync": lambda: cmd_sync(rest),
      "run": cmd_run, "demo": demo}[cmd]()

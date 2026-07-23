@@ -2,11 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Polymath OS</title>
 <link rel="icon" href="/icon.svg">
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#04060a">
+<!-- installable full-screen app on iOS ("Add to Home Screen") + Android -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Polymath">
+<link rel="apple-touch-icon" href="/icon.svg">
 <style>
   :root {
     --bg: #04060a;
@@ -26,7 +32,7 @@
   }
   * { box-sizing: border-box; margin: 0; }
   body {
-    min-height: 100vh; overflow-x: hidden;
+    min-height: 100dvh; overflow-x: hidden;
     background: var(--bg)
       radial-gradient(1100px 540px at 50% -12%, rgba(255, 115, 20, .10), transparent 70%);
     color: var(--ink); font-family: var(--disp);
@@ -67,7 +73,7 @@
   main {
     position: relative; z-index: 1;
     display: flex; gap: 18px; max-width: 1560px; margin: 0 auto;
-    padding: 12px 22px 18px; height: calc(100vh - 64px);
+    padding: 12px 22px 18px; height: calc(100dvh - 64px);
   }
   main.shake { animation: shake .4s; }
 
@@ -319,6 +325,8 @@
   .skill .top { display: flex; align-items: baseline; gap: 10px; }
   .skill .name { font-size: 14px; }
   .skill .slv { font-family: var(--mono); font-size: 12px; color: var(--orange-hot); margin-left: auto; text-shadow: 0 0 8px rgba(255, 140, 30, .5); }
+  .skill .decay { font-family: var(--mono); font-size: 10px; letter-spacing: 1px; color: #e0a24d; border: 1px solid rgba(224,162,77,.5); padding: 1px 6px; }
+  .skill .decay.now { color: #ff5a3c; border-color: rgba(255,90,60,.6); }
   .skill .bar { height: 5px; margin-top: 7px; }
   .skill .bar i::after { display: none; }
   .skill .practice { display: flex; gap: 6px; margin-top: 8px; }
@@ -495,7 +503,7 @@
   #radial text.core { fill: var(--orange); font-size: 13px; }
 
   @media (max-width: 900px) {
-    main { height: calc(100vh - 58px); padding: 8px 10px 10px; }
+    main { height: calc(100dvh - 58px); padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); }
     .screen { padding: 16px 14px; }
     .hud { display: none; }
     .lv-num { font-size: 64px; }
@@ -750,22 +758,23 @@
       return div;
     }));
 
-    const done = s.quests.filter(q => q.state === "done").length;
-    const failed = s.quests.filter(q => q.state === "failed").length;
-    const duds = s.quests.filter(q => q.state === "dud").length;
-    const total = s.quests.length - duds;
+    const xpq = s.quests.filter(q => !q.rem);   // reminders are passive — not counted
+    const done = xpq.filter(q => q.state === "done").length;
+    const failed = xpq.filter(q => q.state === "failed").length;
+    const duds = xpq.filter(q => q.state === "dud").length;
+    const total = xpq.length - duds;
     $("qdone").textContent = done;
     $("qtotal").textContent = total;
     $("qfail").innerHTML = (failed ? ` &nbsp;·&nbsp; <span class="failed-n">${failed} failed</span>` : "")
       + (duds ? ` &nbsp;·&nbsp; <span class="dud-n">${duds} dud</span>` : "");
     $("qbar").style.width = total ? (100 * done / total) + "%" : "0%";
 
-    const pending = s.quests.filter(q => !q.state);
+    const pending = s.quests.filter(q => !q.state && !q.rem);
     const nextId = (pending.find(q => q.time > s.now) || pending[0] || {}).id;
     $("quests").replaceChildren(...s.quests.map((q, i) => {
       const row = document.createElement("div");
       row.className = "q" + (q.state === "done" ? " done" : q.state === "failed" ? " failed"
-        : q.state === "dud" ? " dud" : (q.time <= s.now ? " late" : ""));
+        : q.state === "dud" ? " dud" : (q.time <= s.now && !q.rem ? " late" : ""));
       if (q.id === nextId && !q.state && q.time > s.now) row.classList.add("next");
       row.style.animationDelay = (i * 30) + "ms";
       const t = document.createElement("span"); t.className = "title"; t.textContent = q.title;
@@ -783,7 +792,7 @@
         u.textContent = q.state === "done" ? "✔" : q.state === "failed" ? "✕" : "∅";
         u.onclick = ev => act(ev, q, "undo");
         acts.append(u);
-      } else {
+      } else if (!q.rem) {   // reminders need no action at all
         const d = document.createElement("button"); d.textContent = "Done";
         d.onclick = ev => act(ev, q, "done");
         acts.append(d);
@@ -816,6 +825,10 @@
       const top = document.createElement("div"); top.className = "top";
       const nm = document.createElement("span"); nm.className = "name"; nm.textContent = sk.name;
       top.append(nm);
+      if (sk.decay_in !== null && sk.decay_in <= 2) {
+        const w = sk.decay_in <= 0 ? "ATROPHYING" : `${sk.decay_in}D TO DECAY`;
+        top.insertAdjacentHTML("beforeend", `<span class="decay ${sk.decay_in <= 0 ? "now" : ""}">${w}</span>`);
+      }
       top.insertAdjacentHTML("beforeend", `<span class="slv">LV ${sk.level} · ${sk.into}/${sk.need}</span>`);
       div.append(top);
       div.insertAdjacentHTML("beforeend",
